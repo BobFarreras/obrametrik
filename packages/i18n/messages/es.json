@@ -9,5 +9,19 @@
   "language": "Idioma",
   "emptyProjects": "Todavía no hay proyectos",
   "loading": "Cargando…",
-  "genericError": "No hemos podido completar la acción"
+  "genericError": "No hemos podido completar la acción",
+  "email": "Correo electrónico",
+  "password": "Contraseña",
+  "displayName": "Nombre visible",
+  "logout": "Cerrar sesión",
+  "loginIntro": "Accede a tus proyectos de reforma.",
+  "registerIntro": "Crea tu espacio personal para empezar.",
+  "noAccount": "¿Todavía no tienes cuenta?",
+  "hasAccount": "¿Ya tienes una cuenta?",
+  "invalidCredentials": "El correo o la contraseña no son correctos.",
+  "emailConfirmationRequired": "Revisa tu correo para confirmar la cuenta.",
+  "authUnavailable": "La autenticación no está disponible ahora mismo.",
+  "invalidForm": "Revisa los datos introducidos.",
+  "welcome": "Bienvenido/a",
+  "sessionLoading": "Comprobando la sesión…"
 }

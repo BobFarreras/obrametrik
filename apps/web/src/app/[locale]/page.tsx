@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { messages } from "@obrametrik/i18n";
+import { redirectAuthenticatedUser } from "../../lib/auth/redirect-authenticated-user";
+
+export const dynamic = "force-dynamic";
+
 export default async function Home({
   params,
 }: {
   params: Promise<{ locale: keyof typeof messages }>;
 }) {
   const { locale } = await params;
+  await redirectAuthenticatedUser(locale);
   const t = messages[locale] ?? messages.ca;
   return (
     <main>

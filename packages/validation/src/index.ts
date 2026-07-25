@@ -23,3 +23,7 @@ export const publicWebEnvironmentSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.url(),
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().startsWith("sb_publishable_"),
 });
+export const publicMobileEnvironmentSchema = z.object({
+  EXPO_PUBLIC_SUPABASE_URL: z.url(),
+  EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().startsWith("sb_publishable_"),
+});

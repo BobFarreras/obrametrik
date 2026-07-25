@@ -9,5 +9,19 @@
   "language": "Idioma",
   "emptyProjects": "Encara no hi ha projectes",
   "loading": "Carregant…",
-  "genericError": "No hem pogut completar l'acció"
+  "genericError": "No hem pogut completar l'acció",
+  "email": "Correu electrònic",
+  "password": "Contrasenya",
+  "displayName": "Nom visible",
+  "logout": "Tanca la sessió",
+  "loginIntro": "Accedeix als teus projectes de reforma.",
+  "registerIntro": "Crea el teu espai personal per començar.",
+  "noAccount": "Encara no tens compte?",
+  "hasAccount": "Ja tens un compte?",
+  "invalidCredentials": "El correu o la contrasenya no són correctes.",
+  "emailConfirmationRequired": "Revisa el correu per confirmar el compte.",
+  "authUnavailable": "L'autenticació no està disponible ara mateix.",
+  "invalidForm": "Revisa les dades introduïdes.",
+  "welcome": "Benvingut/da",
+  "sessionLoading": "Comprovant la sessió…"
 }

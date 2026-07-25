@@ -9,5 +9,19 @@
   "language": "Language",
   "emptyProjects": "There are no projects yet",
   "loading": "Loading…",
-  "genericError": "We could not complete the action"
+  "genericError": "We could not complete the action",
+  "email": "Email address",
+  "password": "Password",
+  "displayName": "Display name",
+  "logout": "Sign out",
+  "loginIntro": "Access your renovation projects.",
+  "registerIntro": "Create your personal workspace to begin.",
+  "noAccount": "Do not have an account yet?",
+  "hasAccount": "Already have an account?",
+  "invalidCredentials": "The email or password is incorrect.",
+  "emailConfirmationRequired": "Check your email to confirm the account.",
+  "authUnavailable": "Authentication is currently unavailable.",
+  "invalidForm": "Check the information you entered.",
+  "welcome": "Welcome",
+  "sessionLoading": "Checking your session…"
 }

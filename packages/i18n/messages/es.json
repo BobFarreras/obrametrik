@@ -1,0 +1,13 @@
+{
+  "appName": "Obrametrik",
+  "tagline": "Planifica tu reforma con datos auditables",
+  "login": "Iniciar sesión",
+  "register": "Registrarse",
+  "dashboard": "Panel",
+  "projects": "Proyectos",
+  "profile": "Perfil",
+  "language": "Idioma",
+  "emptyProjects": "Todavía no hay proyectos",
+  "loading": "Cargando…",
+  "genericError": "No hemos podido completar la acción"
+}

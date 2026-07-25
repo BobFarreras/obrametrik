@@ -1,0 +1,4 @@
+- [ ] Unitari i límits
+- [ ] Integració/RLS/contracte
+- [ ] E2E/accessibilitat
+- [ ] Regressió

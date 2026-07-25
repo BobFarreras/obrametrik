@@ -1,0 +1,5 @@
+- [ ] AuthN/AuthZ/RLS/IDOR
+- [ ] Input/rate limit
+- [ ] Secrets/logs/files
+- [ ] SSRF/XSS/CSRF
+- [ ] Prompt injection/privacy

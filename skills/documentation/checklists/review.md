@@ -1,0 +1,4 @@
+- [ ] Capçalera i comentaris
+- [ ] README/ADR/API
+- [ ] Traduccions i exemples
+- [ ] Coincideix amb codi

@@ -1,0 +1,13 @@
+{
+  "appName": "Obrametrik",
+  "tagline": "Plan your renovation with auditable data",
+  "login": "Sign in",
+  "register": "Create account",
+  "dashboard": "Dashboard",
+  "projects": "Projects",
+  "profile": "Profile",
+  "language": "Language",
+  "emptyProjects": "There are no projects yet",
+  "loading": "Loading…",
+  "genericError": "We could not complete the action"
+}

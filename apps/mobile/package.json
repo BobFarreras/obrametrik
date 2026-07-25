@@ -1,0 +1,41 @@
+{
+  "name": "@obrametrik/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "build": "expo export --platform web",
+    "lint": "eslint app app.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:e2e": "echo E2E requires a development build",
+    "clean": "rimraf dist .expo"
+  },
+  "dependencies": {
+    "@obrametrik/i18n": "workspace:*",
+    "@supabase/supabase-js": "^2.56.0",
+    "@tanstack/react-query": "^5.85.5",
+    "expo": "~54.0.0",
+    "expo-file-system": "~19.0.0",
+    "expo-image-picker": "~17.0.0",
+    "expo-localization": "~17.0.0",
+    "expo-router": "~6.0.0",
+    "expo-secure-store": "~15.0.0",
+    "expo-sharing": "~14.0.0",
+    "expo-sqlite": "~16.0.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-hook-form": "^7.62.0",
+    "react-native": "0.81.4",
+    "react-native-web": "^0.21.0",
+    "zod": "^4.0.17"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "eslint": "^9.34.0",
+    "eslint-config-expo": "~10.0.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

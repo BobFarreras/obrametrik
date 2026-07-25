@@ -1,0 +1,4 @@
+- [ ] Sense pèrdua de dades
+- [ ] Constraints i índexs
+- [ ] RLS, grants i tests
+- [ ] Rollback documentat

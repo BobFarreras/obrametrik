@@ -1,0 +1,7 @@
+# Funcionalitat
+
+## Acceptació
+
+## Seguretat
+
+## Verificació

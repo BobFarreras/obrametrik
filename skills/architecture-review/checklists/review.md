@@ -1,0 +1,5 @@
+- [ ] Límits de capa
+- [ ] Cicles
+- [ ] APIs públiques
+- [ ] ADR
+- [ ] Deute tècnic

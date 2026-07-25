@@ -1,0 +1,4 @@
+- [ ] Criteris d'acceptació
+- [ ] Validació i autorització
+- [ ] Traduccions
+- [ ] Tests i documentació

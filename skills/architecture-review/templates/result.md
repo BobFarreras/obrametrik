@@ -1,0 +1,7 @@
+# Resultat
+
+## Troballes
+
+## Evidència
+
+## Recomanació

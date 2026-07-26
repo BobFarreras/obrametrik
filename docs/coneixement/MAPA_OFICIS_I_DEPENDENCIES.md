@@ -101,7 +101,8 @@ Cada entitat pot aportar:
 6. Tancaments, fusteria i vidre.
 7. Revestiments i paviments — base inicial creada.
 8. Ventilació i climatització — bases inicials creades.
-9. Il·luminació.
-10. Pintura, proves i posada en servei.
+9. Il·luminació — base inicial creada.
+10. Pintura i acabats continus — base inicial creada.
+11. Proves i posada en servei — base inicial creada.
 
 Cada bloc necessita almenys un cas daurat que travessi altres oficis.

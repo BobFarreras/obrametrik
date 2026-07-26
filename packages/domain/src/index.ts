@@ -2,6 +2,10 @@
  * @file packages/domain/src/index.ts
  * @description Defines framework-independent product concepts.
  */
+export * from "./building-model";
+export * from "./quality-model";
+export * from "./work-model";
+
 export const locales = ["ca", "es", "en"] as const;
 export type Locale = (typeof locales)[number];
 export const projectStatuses = ["draft", "active", "completed", "archived"] as const;

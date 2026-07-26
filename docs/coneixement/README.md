@@ -35,13 +35,14 @@ deterministes.
 | Revestiments i paviments | [REVESTIMENTS_I_PAVIMENTS.md](REVESTIMENTS_I_PAVIMENTS.md) | Base inicial |
 | Ventilació | [VENTILACIO_I_QUALITAT_AIRE.md](VENTILACIO_I_QUALITAT_AIRE.md) | Base inicial |
 | Climatització | [CLIMATITZACIO_I_CALEFACCIO.md](CLIMATITZACIO_I_CALEFACCIO.md) | Base inicial |
+| Il·luminació | [ILLUMINACIO_I_CONTROL.md](ILLUMINACIO_I_CONTROL.md) | Base inicial |
+| Pintura i acabats continus | [PINTURA_I_ACABATS_CONTINUS.md](PINTURA_I_ACABATS_CONTINUS.md) | Base inicial |
+| Proves i posada en servei | [PROVES_I_POSADA_EN_SERVEI.md](PROVES_I_POSADA_EN_SERVEI.md) | Base inicial |
 | Tancaments i fusteria | [TANCAMENTS_FUSTERIA_VIDRE.md](TANCAMENTS_FUSTERIA_VIDRE.md) | Base inicial |
 | Coordinació | [MAPA_OFICIS_I_DEPENDENCIES.md](MAPA_OFICIS_I_DEPENDENCIES.md) | Inicial |
 
 Documents futurs:
 
-- Il·luminació i càlcul luminotècnic.
-- Pintura i acabats continus.
 - Telecomunicacions i domòtica.
 - Accessibilitat.
 - Protecció contra incendis.

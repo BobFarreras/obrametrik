@@ -6,7 +6,7 @@ export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Stack screenOptions={{ headerBackTitle: "Obrametrik" }} />
+        <Stack screenOptions={{ contentStyle: { backgroundColor: "#f2f4f5" }, headerBackTitle: "Obrametrik", headerShown: false }} />
       </AuthProvider>
     </QueryClientProvider>
   );

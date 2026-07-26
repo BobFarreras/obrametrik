@@ -18,6 +18,28 @@ export const createProjectSchema = z.object({
   description: z.string().trim().max(2000).optional(),
 });
 export const updateProjectSchema = createProjectSchema.omit({ organizationId: true }).partial();
+export const createRoomSchema = z.object({
+  projectId: uuidSchema,
+  name: z.string().trim().min(2).max(120),
+  kind: z.enum(["bathroom", "kitchen", "bedroom", "living_room", "hallway", "other"]),
+  lengthCm: z.coerce.number().min(10).max(10000),
+  widthCm: z.coerce.number().min(10).max(10000),
+  heightCm: z.coerce.number().min(10).max(2000),
+});
+export const createSurfaceSchema = z.object({
+  roomId: uuidSchema,
+  name: z.string().trim().min(2).max(120),
+  kind: z.enum(["wall", "floor", "ceiling", "other"]),
+  widthM: z.coerce.number().positive().max(100),
+  heightM: z.coerce.number().positive().max(20),
+});
+export const createMeasurementSchema = z.object({
+  surfaceId: uuidSchema,
+  label: z.string().trim().min(2).max(120),
+  operation: z.enum(["add", "subtract"]).default("subtract"),
+  widthM: z.coerce.number().positive().max(100),
+  heightM: z.coerce.number().positive().max(20),
+});
 export const publicWebEnvironmentSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.url(),
   NEXT_PUBLIC_SUPABASE_URL: z.url(),

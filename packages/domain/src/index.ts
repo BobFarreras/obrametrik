@@ -18,3 +18,29 @@ export type Project = {
   description: string | null;
   status: ProjectStatus;
 };
+export type Room = {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+};
+export type SurfaceKind = "wall" | "floor" | "ceiling" | "other";
+export type Surface = {
+  id: string;
+  roomId: string;
+  name: string;
+  kind: SurfaceKind;
+  widthM: number;
+  heightM: number;
+  grossAreaM2: number;
+};
+export type MeasurementOperation = "add" | "subtract";
+export type SurfaceMeasurement = {
+  id: string;
+  surfaceId: string;
+  label: string;
+  operation: MeasurementOperation;
+  widthM: number;
+  heightM: number;
+  areaM2: number;
+};

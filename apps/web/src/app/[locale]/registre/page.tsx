@@ -14,8 +14,14 @@ export default async function Register({
   await redirectAuthenticatedUser(locale);
   const t = messages[locale] ?? messages.ca;
   return (
-    <main>
-      <div className="card" style={{ maxWidth: "30rem" }}>
+    <main className="auth-page">
+      <section className="auth-story" aria-hidden="true">
+        <div className="auth-brand">Obrametrik<span>·</span></div>
+        <div className="floating-plan"><span>＋</span><strong>{t.startFirstProject}</strong><small>{t.emptyProjectsHelp}</small></div>
+        <p>{t.secureData}</p>
+      </section>
+      <div className="auth-card">
+        <span className="mobile-brand">Obrametrik<span>·</span></span>
         <h1>{t.register}</h1>
         <p>{t.registerIntro}</p>
         <AuthForm action={register} locale={locale} mode="register" t={t} />

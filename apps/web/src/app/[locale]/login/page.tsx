@@ -17,8 +17,14 @@ export default async function Login({
   const query = await searchParams;
   const t = messages[locale] ?? messages.ca;
   return (
-    <main>
-      <div className="card" style={{ maxWidth: "30rem" }}>
+    <main className="auth-page">
+      <section className="auth-story" aria-hidden="true">
+        <div className="auth-brand">Obrametrik<span>·</span></div>
+        <div className="floating-plan"><span>01</span><strong>{t.projectPreview}</strong><small>84 m² · 6 {t.projects.toLowerCase()}</small></div>
+        <p>{t.secureData}</p>
+      </section>
+      <div className="auth-card">
+        <span className="mobile-brand">Obrametrik<span>·</span></span>
         <h1>{t.login}</h1>
         <p>{t.loginIntro}</p>
         {query.confirmation === "required" ? (

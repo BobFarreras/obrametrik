@@ -11,11 +11,12 @@ tècniques i normativa són àrees de risc.
 ## Ordre de lectura
 
 1. Aquest fitxer.
-2. `docs/GUIA_PRODUCTE_FINAL_REFORMES_IA.md` i
+2. `docs/DESIGN.md` per a qualsevol canvi d’interfície o experiència.
+3. `docs/GUIA_PRODUCTE_FINAL_REFORMES_IA.md` i
    `docs/GUIA_TECNICA_ARQUITECTURA_REFORMES_IA.md`.
-3. L'ADR relacionat.
-4. El README i l'`AGENTS.md` del paquet.
-5. Tests i migracions relacionats.
+4. L'ADR relacionat.
+5. El README i l'`AGENTS.md` del paquet.
+6. Tests i migracions relacionats.
 
 ## Modificació i definició d'acabat
 

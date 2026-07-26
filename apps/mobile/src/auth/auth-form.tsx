@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { z } from "zod";
 import { getDeviceLocale } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
+import { theme } from "../theme";
 
 type LoginValues = z.infer<typeof loginSchema>;
 type RegisterValues = z.infer<typeof registerSchema>;
@@ -33,34 +34,47 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       setError("root", { message: t.invalidForm });
       return;
     }
-    if (mode === "register") {
-      const registerValues = validated.data as RegisterValues;
-      const { data, error } = await supabase.auth.signUp({
-        email: registerValues.email,
-        password: registerValues.password,
-        options: {
-          data: {
-            display_name: registerValues.displayName,
-            preferred_locale: locale,
+    try {
+      if (mode === "register") {
+        const registerValues = validated.data as RegisterValues;
+        const { data, error } = await supabase.auth.signUp({
+          email: registerValues.email,
+          password: registerValues.password,
+          options: {
+            data: {
+              display_name: registerValues.displayName,
+              preferred_locale: locale,
+            },
           },
-        },
+        });
+        if (error) {
+          setError("root", {
+            message: __DEV__ ? `${t.authUnavailable} (${error.message})` : t.authUnavailable,
+          });
+          return;
+        }
+        if (!data.session) {
+          setError("root", { message: t.emailConfirmationRequired });
+          return;
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword(
+          validated.data as LoginValues,
+        );
+        if (error) {
+          setError("root", {
+            message: __DEV__ ? `${t.invalidCredentials} (${error.message})` : t.invalidCredentials,
+          });
+          return;
+        }
+      }
+      router.replace("/projects");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Network request failed";
+      setError("root", {
+        message: __DEV__ ? `${t.authUnavailable} (${detail})` : t.authUnavailable,
       });
-      if (error) {
-        setError("root", { message: t.authUnavailable });
-        return;
-      }
-      if (!data.session) {
-        setError("root", { message: t.emailConfirmationRequired });
-        return;
-      }
-    } else {
-      const { error } = await supabase.auth.signInWithPassword(validated.data as LoginValues);
-      if (error) {
-        setError("root", { message: t.invalidCredentials });
-        return;
-      }
     }
-    router.replace("/projects");
   });
 
   return (
@@ -131,14 +145,25 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 }
 
 const styles = StyleSheet.create({
-  form: { gap: 16 },
+  form: { gap: 14, width: "100%" },
   input: {
-    backgroundColor: "#fff",
-    borderColor: "#9da79f",
-    borderRadius: 8,
+    backgroundColor: "#fafafa",
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.control,
     borderWidth: 1,
-    padding: 14,
+    minHeight: 54,
+    paddingHorizontal: 16,
   },
-  button: { backgroundColor: "#d85c2f", borderRadius: 10, padding: 14 },
+  button: {
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.radius.pill,
+    elevation: 5,
+    marginTop: 4,
+    minHeight: 54,
+    padding: 14,
+    shadowColor: theme.colors.accent,
+    shadowOpacity: .25,
+    shadowRadius: 16,
+  },
   buttonText: { color: "#fff", fontSize: 16, fontWeight: "700", textAlign: "center" },
 });

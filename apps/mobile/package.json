@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "expo start",
     "dev:tunnel": "expo start --tunnel",
+    "android:usb": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/android-reverse.ps1",
     "build": "expo export --platform web",
     "lint": "eslint app app.config.ts",
     "typecheck": "tsc --noEmit",

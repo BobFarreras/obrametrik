@@ -12,8 +12,9 @@ prototips `reforma_facil_app.html`, `reforma_facil_web.html` i de la referència
 
 1. **Mòbil primer.** La majoria d’accions s’han de poder completar amb una mà.
 2. **Orientat a tasques.** Cada pantalla té una acció principal evident.
-3. **Llenguatge no tècnic.** Preguntar amb exemples i unitats familiars; el
-   sistema converteix i valida internament.
+3. **Llenguatge clar i precisió professional.** Preguntar amb exemples
+   comprensibles, mostrar les cotes d'obra en mil·límetres i explicar qualsevol
+   conversió o validació.
 4. **Complexitat progressiva.** Mostrar primer el necessari i revelar opcions
    tècniques quan el context les requereix.
 5. **Visual però auditable.** Il·lustracions i plànols faciliten la comprensió,
@@ -81,13 +82,16 @@ d’acció. El teal comunica confiança i l’amber energia i progrés.
 
 ### Projecte i amidaments
 
-- Flux guiat, no formulari tècnic pla.
-- Ordre: espai → dimensions → plànol → superfícies generades → portes i
-  finestres → estat actual → treball desitjat → revisió.
-- Dimensions introduïdes en cm amb exemples; conversió interna a metres.
-- El plànol i les superfícies es generen de les mateixes dades.
+- L'editor de geometria és el centre del flux, no un formulari tècnic pla.
+- Ordre: espai → geometria del plànol → cotes → obertures i elements → alçats
+  de paret → estat actual → treball desitjat → revisió.
+- Les cotes d'obra s'introdueixen i es mostren en mil·límetres (`mm`).
+- El plànol, les parets, els alçats i les superfícies es generen d'un únic
+  model geomètric.
 - Cada resultat diferencia àrea bruta, deduccions i àrea neta.
-- Els errors impossibles s’expliquen abans de guardar.
+- Els errors impossibles s'expliquen abans de guardar.
+- La definició completa de l'editor es troba a
+  `docs/GUIA_EDITOR_PLÀNOLS_PROFESSIONAL.md`.
 
 ### Materials
 
@@ -126,6 +130,7 @@ augmentar densitat i amplada, però no crear una identitat paral·lela.
 - Respectar safe areas i mida de text del sistema.
 - Animacions breus i compatibles amb `prefers-reduced-motion`.
 - Inputs amb unitat visible, exemple i error associat.
+- En mòbil, el camp actiu sempre queda visible per sobre del teclat.
 
 ## Internacionalització
 
@@ -149,8 +154,8 @@ sense truncar informació crítica.
 - Targetes amb cantonades dures.
 - Formularis llargs sense passos ni context.
 - Inputs de mesures sense unitat.
+- Utilitzar centímetres com a unitat principal de captura o cotatge.
 - Icones o botons menors de 44 px.
 - Navegació inferior flotant que no respecti la safe area.
 - Decoració que amagui jerarquia, errors o fórmules.
 - Copiar literalment els emoji o el marc de telèfon dels prototips.
-

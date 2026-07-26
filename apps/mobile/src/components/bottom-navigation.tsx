@@ -20,7 +20,7 @@ export function BottomNavigation() {
         const active = pathname === item.href;
         if (index === 2) {
           return (
-            <Link accessibilityLabel={t.newProject} href="/projects" key="primary-action" asChild>
+            <Link accessibilityLabel={t.newProject} href="/projects/new" key="primary-action" asChild>
               <Pressable style={styles.action}>
                 <Text style={styles.actionIcon}>＋</Text>
               </Pressable>

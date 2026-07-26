@@ -1,5 +1,5 @@
 begin;
-select plan(3);
+select plan(5);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values (
@@ -66,6 +66,59 @@ select is(
   ),
   8.4000::numeric,
   'opening is auditable as a separate deduction'
+);
+
+select throws_ok(
+  $$
+    insert into public.measurements (
+      surface_id,
+      created_by,
+      label,
+      operation,
+      width_m,
+      height_m
+    )
+    values (
+      '55555555-5555-4555-8555-555555555555',
+      '22222222-2222-4222-8222-222222222222',
+      'Obertura impossible',
+      'subtract',
+      4,
+      2.5
+    )
+  $$,
+  '23514',
+  'measurement deductions cannot exceed surface gross area',
+  'cumulative deductions cannot make net area negative'
+);
+
+insert into public.surface_work_scopes (
+  surface_id,
+  created_by,
+  existing_finish,
+  condition,
+  water_exposure,
+  remove_existing,
+  desired_works
+)
+values (
+  '55555555-5555-4555-8555-555555555555',
+  '22222222-2222-4222-8222-222222222222',
+  'tile',
+  'minor_damage',
+  'wet',
+  true,
+  array['repair', 'waterproof', 'tile']::public.surface_work_type[]
+);
+
+select is(
+  (
+    select cardinality(desired_works)
+    from public.surface_work_scopes
+    where surface_id = '55555555-5555-4555-8555-555555555555'
+  ),
+  3,
+  'surface work scope stores multiple explicit tasks'
 );
 
 select * from finish();

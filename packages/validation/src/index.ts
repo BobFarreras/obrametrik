@@ -40,6 +40,23 @@ export const createMeasurementSchema = z.object({
   widthM: z.coerce.number().positive().max(100),
   heightM: z.coerce.number().positive().max(20),
 });
+export const surfaceWorkScopeSchema = z.object({
+  surfaceId: uuidSchema,
+  existingFinish: z.enum([
+    "paint", "tile", "plaster", "drywall", "concrete", "wood", "unknown", "other",
+  ]),
+  condition: z.enum(["good", "minor_damage", "damaged", "damp", "unknown"]),
+  waterExposure: z.enum(["dry", "occasional", "wet"]),
+  removeExisting: z.boolean(),
+  desiredWorks: z
+    .array(z.enum([
+      "paint", "tile", "plaster", "wallpaper", "repair",
+      "waterproof", "replace", "leave_as_is", "other",
+    ]))
+    .min(1)
+    .max(9),
+  notes: z.string().trim().max(1000).optional(),
+});
 export const publicWebEnvironmentSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.url(),
   NEXT_PUBLIC_SUPABASE_URL: z.url(),

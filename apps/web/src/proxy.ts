@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { refreshAuthSession } from "./lib/supabase/middleware";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   return refreshAuthSession(request);
 }
 

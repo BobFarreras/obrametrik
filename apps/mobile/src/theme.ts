@@ -1,12 +1,19 @@
+import { colors, radii, spacing } from "@obrametrik/ui-tokens";
+
 export const theme = {
   colors: {
-    canvas: "#f2f4f5",
-    surface: "#ffffff",
-    ink: "#111111",
-    muted: "#707278",
-    border: "#e7e8ea",
-    accent: "#5433eb",
-    accentSoft: "#eeeaff",
+    canvas: colors.plaster,
+    surface: colors.white,
+    ink: colors.slate,
+    concrete: colors.concrete,
+    muted: colors.muted,
+    border: colors.border,
+    accent: colors.hardhat,
+    accentText: colors.slate,
+    accentSoft: colors.accentSoft,
+    brand: colors.blueprint,
+    danger: colors.safety,
   },
-  radius: { card: 28, control: 16, pill: 999 },
+  radius: radii,
+  spacing,
 } as const;

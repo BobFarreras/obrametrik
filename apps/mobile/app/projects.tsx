@@ -2,9 +2,10 @@ import { messages } from "@obrametrik/i18n";
 import { createProjectSchema } from "@obrametrik/validation";
 import { Redirect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "../src/auth/auth-provider";
 import { BottomNavigation } from "../src/components/bottom-navigation";
+import { Button, Card, EmptyState, Field } from "../src/components/ui";
 import { getDeviceLocale } from "../src/lib/i18n";
 import { supabase } from "../src/lib/supabase";
 import { theme } from "../src/theme";
@@ -71,11 +72,13 @@ export default function ProjectsScreen() {
         <Text style={styles.eyebrow}>{t.appName.toUpperCase()}</Text>
         <Text accessibilityRole="header" style={styles.title}>{t.projects}</Text>
         <Text style={styles.copy}>{t.emptyProjectsHelp}</Text>
-        {projects.length === 0 ? <View style={styles.empty}>
-          <View style={styles.emptyIcon}><Text style={styles.emptyIconText}>▱</Text></View>
-          <Text style={styles.emptyTitle}>{t.emptyProjects}</Text>
-          <Text style={styles.emptyCopy}>{t.emptyProjectsHelp}</Text>
-        </View> : <View style={styles.list}>
+        {projects.length === 0 ? (
+          <EmptyState
+            description={t.emptyProjectsHelp}
+            title={t.emptyProjects}
+            visual={<Text style={styles.emptyIconText}>P</Text>}
+          />
+        ) : <View style={styles.list}>
           {projects.map((project) => (
             <View key={project.id} style={styles.projectRow}>
               <View style={styles.thumbnail}><Text style={styles.thumbnailText}>⌂</Text></View>
@@ -84,16 +87,16 @@ export default function ProjectsScreen() {
             </View>
           ))}
         </View>}
-        <View style={styles.form}>
+        <Card style={styles.form}>
           <Text style={styles.chip}>{t.newProject.toUpperCase()}</Text>
           <Text style={styles.formTitle}>{t.createProject}</Text>
-          <Text style={styles.label}>{t.projectName}</Text>
-          <TextInput accessibilityLabel={t.projectName} onChangeText={setName} placeholder="Reforma del bany" placeholderTextColor="#96979b" style={styles.input} value={name} />
-          <Text style={styles.label}>{t.projectAddress}</Text>
-          <TextInput accessibilityLabel={t.projectAddress} onChangeText={setAddress} placeholder="Barcelona" placeholderTextColor="#96979b" style={styles.input} value={address} />
+          <Field label={t.projectName} onChangeText={setName} placeholder={t.projectName} value={name} />
+          <Field label={t.projectAddress} onChangeText={setAddress} placeholder={t.projectAddress} value={address} />
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-          <Pressable accessibilityRole="button" disabled={saving} onPress={submitProject} style={styles.button}><Text style={styles.buttonText}>{saving ? t.saving : `${t.createProject} →`}</Text></Pressable>
-        </View>
+          <View style={styles.formAction}>
+            <Button loading={saving} onPress={submitProject}>{t.createProject}</Button>
+          </View>
+        </Card>
       </ScrollView>
       <BottomNavigation />
     </View>
@@ -106,11 +109,7 @@ const styles = StyleSheet.create({
   eyebrow: { color: theme.colors.accent, fontSize: 12, fontWeight: "800", letterSpacing: 1 },
   title: { color: theme.colors.ink, fontSize: 44, fontWeight: "700", letterSpacing: -2, marginTop: 8 },
   copy: { color: theme.colors.muted, fontSize: 16, lineHeight: 23, marginTop: 2 },
-  empty: { alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: 28, marginTop: 34, padding: 30 },
-  emptyIcon: { alignItems: "center", backgroundColor: theme.colors.accentSoft, borderRadius: 34, height: 68, justifyContent: "center", width: 68 },
-  emptyIconText: { color: theme.colors.accent, fontSize: 29 },
-  emptyTitle: { color: theme.colors.ink, fontSize: 20, fontWeight: "700", marginTop: 20 },
-  emptyCopy: { color: theme.colors.muted, lineHeight: 20, marginTop: 7, textAlign: "center" },
+  emptyIconText: { color: theme.colors.brand, fontSize: 24, fontWeight: "800" },
   list: { gap: 12, marginTop: 34 },
   projectRow: { alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: 22, flexDirection: "row", gap: 14, padding: 12 },
   thumbnail: { alignItems: "center", backgroundColor: "#dcd7ce", borderRadius: 16, height: 72, justifyContent: "center", width: 72 },
@@ -118,13 +117,10 @@ const styles = StyleSheet.create({
   projectInfo: { flex: 1 },
   projectName: { color: theme.colors.ink, fontSize: 17, fontWeight: "700", marginTop: 4 },
   projectDescription: { color: theme.colors.muted, fontSize: 12, marginTop: 3 },
-  delete: { color: "#a13939", fontSize: 12, padding: 8 },
-  form: { backgroundColor: theme.colors.surface, borderRadius: 28, elevation: 5, marginTop: 18, padding: 24, shadowColor: "#111", shadowOpacity: .08, shadowRadius: 20 },
+  delete: { color: theme.colors.danger, fontSize: 12, padding: 8 },
+  form: { marginTop: 18 },
   chip: { color: theme.colors.accent, fontSize: 11, fontWeight: "800", letterSpacing: 1 },
   formTitle: { color: theme.colors.ink, fontSize: 26, fontWeight: "700", letterSpacing: -1, marginBottom: 20, marginTop: 10 },
-  label: { color: "#414147", fontSize: 13, marginBottom: 7, marginTop: 13 },
-  input: { backgroundColor: "#fafafa", borderColor: theme.colors.border, borderRadius: 16, borderWidth: 1, minHeight: 52, paddingHorizontal: 16 },
-  button: { alignItems: "center", backgroundColor: theme.colors.accent, borderRadius: 999, justifyContent: "center", marginTop: 22, minHeight: 52 },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  error: { color: "#a13939", marginTop: 12 },
+  formAction: { marginTop: 22 },
+  error: { color: theme.colors.danger, marginTop: 12 },
 });

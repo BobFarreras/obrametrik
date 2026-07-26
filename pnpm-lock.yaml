@@ -33,6 +33,9 @@ importers:
       '@obrametrik/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@obrametrik/ui-tokens':
+        specifier: workspace:*
+        version: link:../../packages/ui-tokens
       '@obrametrik/validation':
         specifier: workspace:*
         version: link:../../packages/validation

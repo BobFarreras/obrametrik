@@ -39,6 +39,16 @@ vista 3D generada del mateix model.
 - El viewport enquadra el contorn i permet pan i zoom sense dependre d'una
   mida fixa d'escriptori.
 - Seleccionar o arrossegar un component conserva el seu ancoratge a paret.
+- Quan una paret es trasllada, gira o canvia de longitud, tots els seus
+  components conserven la posició longitudinal relativa i es reproyecten sobre
+  la nova paret. Les portes i finestres es mantenen completament dins del tram.
+- `Shift+clic` permet seleccionar diversos components i eliminar el conjunt com
+  una única operació reversible.
+- La selecció es pot duplicar (`Ctrl/Cmd+D`) o copiar i enganxar
+  (`Ctrl/Cmd+C`, `Ctrl/Cmd+V`). Les còpies es desplacen 200 mm al llarg de la
+  seva pròpia paret i continuen respectant els límits de les obertures.
+- Arrossegar una selecció múltiple aplica el mateix desplaçament longitudinal a
+  cada component sobre la seva paret amfitriona.
 - L'inspector permet editar dimensions i alçada del component seleccionat.
 - Les mutacions del document creen punts d'historial coherents. Desfer i refer
   restauren geometria, propietats i components com una sola operació.

@@ -191,6 +191,11 @@
   "saveFailed": "No s'ha pogut desar. Torna-ho a provar.",
   "undo": "Desfer",
   "redo": "Refer",
+  "selectedComponents": "Components seleccionats",
+  "deleteSelectedComponents": "Eliminar la selecció",
+  "copyComponents": "Copiar",
+  "pasteComponents": "Enganxar",
+  "duplicateComponents": "Duplicar",
   "millimetresUnit": "mm",
   "legacyMeasurements": "Veure amidaments antics"
 }

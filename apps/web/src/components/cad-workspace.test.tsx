@@ -54,6 +54,11 @@ const messages = {
   saveFailed: "Error al guardar",
   undo: "Deshacer",
   redo: "Rehacer",
+  selectedComponents: "Componentes seleccionados",
+  deleteSelectedComponents: "Eliminar la selección",
+  copyComponents: "Copiar",
+  pasteComponents: "Pegar",
+  duplicateComponents: "Duplicar",
   millimetresUnit: "mm",
   bathroom: "Baño",
   kitchen: "Cocina",
@@ -251,12 +256,20 @@ describe("CadWorkspace", () => {
       dimensionsMm: { width: 80, height: 80, depth: 50 },
       specification: { terminalKind: "socket" },
     };
+    const secondSocket = {
+      ...socket,
+      id: "socket-2",
+      transform: {
+        ...socket.transform,
+        position: { x: 1800, y: 0, z: 350 },
+      },
+    };
     render(
       <CadWorkspace
         locale="es"
         projectId="project-1"
         spaces={[space]}
-        elements={[wall, socket]}
+        elements={[wall, socket, secondSocket]}
         messages={messages}
       />,
     );
@@ -265,5 +278,17 @@ describe("CadWorkspace", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Enchufe" }).at(-1)!);
     expect(screen.getByLabelText("Anchura")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Eliminar componente" })).toBeTruthy();
+
+    const socketButtons = screen.getAllByRole("button", { name: "Enchufe" }).slice(-2);
+    fireEvent.click(socketButtons[0]!);
+    fireEvent.click(socketButtons[1]!, { shiftKey: true });
+    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Eliminar la selección" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicar" }));
+    expect(screen.getAllByRole("button", { name: "Enchufe" })).toHaveLength(5);
+    fireEvent.click(screen.getByRole("button", { name: "Copiar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pegar" }));
+    expect(screen.getAllByRole("button", { name: "Enchufe" })).toHaveLength(7);
   });
 });

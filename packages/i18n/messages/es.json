@@ -191,6 +191,11 @@
   "saveFailed": "No se ha podido guardar. Inténtalo de nuevo.",
   "undo": "Deshacer",
   "redo": "Rehacer",
+  "selectedComponents": "Componentes seleccionados",
+  "deleteSelectedComponents": "Eliminar la selección",
+  "copyComponents": "Copiar",
+  "pasteComponents": "Pegar",
+  "duplicateComponents": "Duplicar",
   "millimetresUnit": "mm",
   "legacyMeasurements": "Ver mediciones antiguas"
 }

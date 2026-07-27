@@ -191,6 +191,11 @@
   "saveFailed": "Could not save. Please try again.",
   "undo": "Undo",
   "redo": "Redo",
+  "selectedComponents": "Selected components",
+  "deleteSelectedComponents": "Delete selection",
+  "copyComponents": "Copy",
+  "pasteComponents": "Paste",
+  "duplicateComponents": "Duplicate",
   "millimetresUnit": "mm",
   "legacyMeasurements": "View legacy measurements"
 }

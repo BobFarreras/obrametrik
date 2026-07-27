@@ -11,6 +11,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { saveCadSpace } from "../app/[locale]/dashboard/projects/[projectId]/actions";
+import { offsetHostedMarkers, reprojectHostedMarkers } from "./cad-wall-geometry";
 
 type ComponentKind =
   "door" | "window" | "light" | "switch" | "socket" | "cold_water" | "hot_water" | "drain";
@@ -65,6 +66,8 @@ type CadMessages = {
   componentElevationMm: string;
   deleteComponent: string;
   selectedComponent: string;
+  selectedComponents: string;
+  deleteSelectedComponents: string;
   rectangleShape: string;
   lShape: string;
   uShape: string;
@@ -82,6 +85,9 @@ type CadMessages = {
   saveFailed: string;
   undo: string;
   redo: string;
+  copyComponents: string;
+  pasteComponents: string;
+  duplicateComponents: string;
   millimetresUnit: string;
   bathroom: string;
   kitchen: string;
@@ -435,7 +441,7 @@ export function CadWorkspace({
   const [tool, setTool] = useState<Tool>("select");
   const [activeVertex, setActiveVertex] = useState<number | null>(null);
   const [activeMarker, setActiveMarker] = useState<string | null>(null);
-  const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
+  const [selectedMarkerIds, setSelectedMarkerIds] = useState<readonly string[]>([]);
   const [markers, setMarkers] = useState<readonly Marker[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"clean" | "dirty" | "saving" | "error">("clean");
@@ -449,9 +455,12 @@ export function CadWorkspace({
     past: CadDocumentSnapshot[];
     future: CadDocumentSnapshot[];
   }>({ past: [], future: [] });
+  const componentClipboardRef = useRef<readonly Marker[]>([]);
+  const [hasComponentClipboard, setHasComponentClipboard] = useState(false);
   const panStart = useRef<{ x: number; y: number; viewBox: ViewBox } | null>(null);
   const dragCheckpointRef = useRef(false);
   const area = useMemo(() => polygonArea(vertices), [vertices]);
+  const selectedMarker = selectedMarkerIds.at(-1) ?? null;
   const selected = markers.find((marker) => marker.id === selectedMarker);
   const toolLabels: Record<Tool, string> = {
     select: messages.selectTool,
@@ -499,7 +508,7 @@ export function CadWorkspace({
     setName(restored.name);
     setKind(restored.kind);
     setMarkers(restored.markers);
-    setSelectedMarker(null);
+    setSelectedMarkerIds([]);
     setViewBox(fitViewBox(restored.vertices));
   }
 
@@ -523,6 +532,35 @@ export function CadWorkspace({
       canUndo: true,
       canRedo: historyRef.current.future.length > 0,
     });
+  }
+
+  function copySelectedComponents() {
+    const copied = markers
+      .filter((marker) => selectedMarkerIds.includes(marker.id))
+      .map((marker) => ({ ...marker, point: { ...marker.point } }));
+    if (!copied.length) return;
+    componentClipboardRef.current = copied;
+    setHasComponentClipboard(true);
+  }
+
+  function insertComponentCopies(source: readonly Marker[]) {
+    if (!source.length) return;
+    checkpoint();
+    const copies = offsetHostedMarkers(
+      source.map((marker) => ({ ...marker, id: crypto.randomUUID(), point: { ...marker.point } })),
+      vertices,
+      200,
+    );
+    setMarkers((current) => [...current, ...copies]);
+    setSelectedMarkerIds(copies.map((marker) => marker.id));
+  }
+
+  function duplicateSelectedComponents() {
+    insertComponentCopies(markers.filter((marker) => selectedMarkerIds.includes(marker.id)));
+  }
+
+  function pasteComponents() {
+    insertComponentCopies(componentClipboardRef.current);
   }
 
   async function persistPlan(spaceId: string | null) {
@@ -558,7 +596,7 @@ export function CadWorkspace({
     setVertices(next);
     setViewBox(fitViewBox(next));
     setMarkers([]);
-    setSelectedMarker(null);
+    setSelectedMarkerIds([]);
   }
 
   function updateSelected(values: Partial<Marker>) {
@@ -575,7 +613,7 @@ export function CadWorkspace({
     setHeight(space.clearHeightMm);
     setName(space.name);
     setKind(space.kind);
-    setSelectedMarker(null);
+    setSelectedMarkerIds([]);
     const loadedMarkers = elements
         .filter((element) => element.spaceId === space.id && element.kind !== "wall")
         .flatMap((element): Marker[] => {
@@ -639,17 +677,29 @@ export function CadWorkspace({
   }, [spaces]);
 
   useEffect(() => {
-    function handleHistoryShortcut(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
-      event.preventDefault();
-      if (event.shiftKey) redo();
-      else undo();
+    function handleEditorShortcut(event: KeyboardEvent) {
+      const command = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (command && key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+      } else if (command && key === "c" && selectedMarkerIds.length) {
+        event.preventDefault();
+        copySelectedComponents();
+      } else if (command && key === "v" && componentClipboardRef.current.length) {
+        event.preventDefault();
+        pasteComponents();
+      } else if (command && key === "d" && selectedMarkerIds.length) {
+        event.preventDefault();
+        duplicateSelectedComponents();
+      }
     }
-    window.addEventListener("keydown", handleHistoryShortcut);
-    return () => window.removeEventListener("keydown", handleHistoryShortcut);
+    window.addEventListener("keydown", handleEditorShortcut);
+    return () => window.removeEventListener("keydown", handleEditorShortcut);
     // History always captures the current rendered document before restoring.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vertices, height, name, kind, markers]);
+  }, [vertices, height, name, kind, markers, selectedMarkerIds]);
 
   function zoom(factor: number) {
     setViewBox((current) => {
@@ -681,11 +731,11 @@ export function CadWorkspace({
         ...defaults[tool],
       };
       setMarkers((current) => [...current, marker]);
-      setSelectedMarker(marker.id);
+      setSelectedMarkerIds([marker.id]);
       setTool("select");
       return;
     }
-    setSelectedMarker(null);
+    setSelectedMarkerIds([]);
     panStart.current = { x: event.clientX, y: event.clientY, viewBox };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -697,9 +747,11 @@ export function CadWorkspace({
         dragCheckpointRef.current = true;
       }
       const point = svgPoint(event);
-      setVertices((current) =>
-        current.map((vertex, index) => (index === activeVertex ? point : vertex)),
+      const nextVertices = vertices.map((vertex, index) =>
+        index === activeVertex ? point : vertex,
       );
+      setVertices(nextVertices);
+      setMarkers((current) => reprojectHostedMarkers(current, vertices, nextVertices));
       return;
     }
     if (activeMarker) {
@@ -709,6 +761,29 @@ export function CadWorkspace({
       }
       const active = markers.find((marker) => marker.id === activeMarker);
       const nearest = closestWall(vertices, svgPoint(event), active?.widthMm ?? 0);
+      if (active && selectedMarkerIds.length > 1) {
+        const wallStart = vertices[active.wallIndex];
+        const wallEnd = vertices[(active.wallIndex + 1) % vertices.length];
+        if (wallStart && wallEnd) {
+          const length = Math.hypot(wallEnd.x - wallStart.x, wallEnd.y - wallStart.y);
+          const offsetMm =
+            length === 0
+              ? 0
+              : ((nearest.point.x - active.point.x) * (wallEnd.x - wallStart.x) +
+                  (nearest.point.y - active.point.y) * (wallEnd.y - wallStart.y)) /
+                length;
+          setMarkers((current) => {
+            const moved = offsetHostedMarkers(
+              current.filter((marker) => selectedMarkerIds.includes(marker.id)),
+              vertices,
+              offsetMm,
+            );
+            const byId = new Map(moved.map((marker) => [marker.id, marker]));
+            return current.map((marker) => byId.get(marker.id) ?? marker);
+          });
+          return;
+        }
+      }
       setMarkers((current) =>
         current.map((marker) =>
           marker.id === activeMarker
@@ -941,7 +1016,13 @@ export function CadWorkspace({
                     onPointerDown={(event) => {
                       if (tool !== "select") return;
                       event.stopPropagation();
-                      setSelectedMarker(marker.id);
+                      setSelectedMarkerIds((current) =>
+                        event.shiftKey
+                          ? current.includes(marker.id)
+                            ? current.filter((id) => id !== marker.id)
+                            : [...current, marker.id]
+                          : [marker.id],
+                      );
                       setActiveMarker(marker.id);
                       event.currentTarget.setPointerCapture(event.pointerId);
                     }}
@@ -949,7 +1030,7 @@ export function CadWorkspace({
                     <CadSymbol
                       marker={marker}
                       vertices={vertices}
-                      selected={marker.id === selectedMarker}
+                      selected={selectedMarkerIds.includes(marker.id)}
                     />
                   </g>
                 ))}
@@ -965,7 +1046,7 @@ export function CadWorkspace({
                       strokeWidth="35"
                       onPointerDown={(event) => {
                         event.stopPropagation();
-                        setSelectedMarker(null);
+                        setSelectedMarkerIds([]);
                         setActiveVertex(index);
                         event.currentTarget.setPointerCapture(event.pointerId);
                       }}
@@ -979,7 +1060,39 @@ export function CadWorkspace({
         </div>
 
         <aside className="cad-inspector">
-          {selected ? (
+          {selectedMarkerIds.length > 1 ? (
+            <div className="cad-inspector-section">
+              <span className="status-chip">{messages.selectedComponents}</span>
+              <div className="cad-selected-heading">
+                <strong>{selectedMarkerIds.length}</strong>
+                <span>{messages.selectedComponents}</span>
+              </div>
+              <div className="cad-selection-actions">
+                <button type="button" onClick={copySelectedComponents}>
+                  {messages.copyComponents}
+                </button>
+                <button type="button" onClick={duplicateSelectedComponents}>
+                  {messages.duplicateComponents}
+                </button>
+                <button type="button" onClick={pasteComponents} disabled={!hasComponentClipboard}>
+                  {messages.pasteComponents}
+                </button>
+              </div>
+              <button
+                className="cad-delete-component"
+                type="button"
+                onClick={() => {
+                  checkpoint();
+                  setMarkers((current) =>
+                    current.filter((marker) => !selectedMarkerIds.includes(marker.id)),
+                  );
+                  setSelectedMarkerIds([]);
+                }}
+              >
+                {messages.deleteSelectedComponents}
+              </button>
+            </div>
+          ) : selected ? (
             <div className="cad-inspector-section">
               <span className="status-chip">{messages.selectedComponent}</span>
               <div className="cad-selected-heading">
@@ -987,6 +1100,17 @@ export function CadWorkspace({
                   <ToolIcon kind={selected.kind} />
                 </svg>
                 <strong>{toolLabels[selected.kind]}</strong>
+              </div>
+              <div className="cad-selection-actions">
+                <button type="button" onClick={copySelectedComponents}>
+                  {messages.copyComponents}
+                </button>
+                <button type="button" onClick={duplicateSelectedComponents}>
+                  {messages.duplicateComponents}
+                </button>
+                <button type="button" onClick={pasteComponents} disabled={!hasComponentClipboard}>
+                  {messages.pasteComponents}
+                </button>
               </div>
               <label>
                 {messages.componentWidthMm}
@@ -1036,7 +1160,7 @@ export function CadWorkspace({
                 onClick={() => {
                   checkpoint();
                   setMarkers((current) => current.filter((marker) => marker.id !== selected.id));
-                  setSelectedMarker(null);
+                  setSelectedMarkerIds([]);
                 }}
               >
                 {messages.deleteComponent}
@@ -1100,10 +1224,21 @@ export function CadWorkspace({
             {markers.length ? (
               <ul className="cad-object-list">
                 {markers.map((marker) => (
-                  <li key={marker.id} className={marker.id === selectedMarker ? "is-active" : ""}>
+                  <li
+                    key={marker.id}
+                    className={selectedMarkerIds.includes(marker.id) ? "is-active" : ""}
+                  >
                     <button
                       type="button"
-                      onClick={() => setSelectedMarker(marker.id)}
+                      onClick={(event) =>
+                        setSelectedMarkerIds((current) =>
+                          event.shiftKey
+                            ? current.includes(marker.id)
+                              ? current.filter((id) => id !== marker.id)
+                              : [...current, marker.id]
+                            : [marker.id],
+                        )
+                      }
                       aria-label={toolLabels[marker.kind]}
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">

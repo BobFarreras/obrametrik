@@ -427,6 +427,19 @@ label { display: grid; gap: 8px; margin-block: 18px; color: #3d3d42; font-size: 
 .cad-object-list small { color: #687d7f; font-size: .65rem; }
 .cad-selected-heading { align-items: center; display: flex; gap: 10px; margin: 16px 0; }
 .cad-selected-heading svg { background: #fff3d9; border-radius: 12px; height: 42px; padding: 8px; width: 42px; }
+.cad-selection-actions { display: grid; gap: 6px; grid-template-columns: repeat(3, 1fr); }
+.cad-selection-actions button {
+  background: #edf3f1;
+  border: 0;
+  border-radius: 999px;
+  color: #2a4b4f;
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 800;
+  min-height: 44px;
+  padding: 6px;
+}
+.cad-selection-actions button:disabled { opacity: .4; }
 .cad-delete-component {
   background: #fff2ef;
   border: 1px solid #f4c8bd;

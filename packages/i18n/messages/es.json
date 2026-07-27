@@ -185,6 +185,12 @@
   "noPlanObjects": "Selecciona una herramienta y toca una pared para añadir un elemento.",
   "savedSpaces": "Espacios guardados",
   "unsavedPlan": "Espacio nuevo",
+  "savePending": "Cambios pendientes",
+  "savingPlan": "Guardando…",
+  "planSaved": "Guardado",
+  "saveFailed": "No se ha podido guardar. Inténtalo de nuevo.",
+  "undo": "Deshacer",
+  "redo": "Rehacer",
   "millimetresUnit": "mm",
   "legacyMeasurements": "Ver mediciones antiguas"
 }

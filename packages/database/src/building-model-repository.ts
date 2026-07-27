@@ -1,4 +1,9 @@
-import type { BuildingModelRepository } from "@obrametrik/application";
+import type {
+  BuildingModelRepository,
+  CadPlanSaver,
+  CadPlanDraft,
+  SavedCadPlan,
+} from "@obrametrik/application";
 import {
   assertValidSpaceDraft,
   type BuildingElement,
@@ -26,6 +31,7 @@ export interface BuildingSpacesGateway {
   insertLevel(level: BuildingLevelInsert): Promise<BuildingLevelRow>;
   insertElement(element: BuildingElementInsert): Promise<BuildingElementRow>;
   findElementsByProject(projectId: string): Promise<readonly BuildingElementRow[]>;
+  saveCadPlan(plan: CadPlanDraft, spaceId?: string): Promise<SavedCadPlan>;
 }
 
 function toPolygonJson(vertices: readonly Point2Mm[]): Json {
@@ -191,7 +197,7 @@ function mapBuildingElementRow(row: BuildingElementRow): BuildingElement {
   };
 }
 
-export class SupabaseBuildingModelRepository implements BuildingModelRepository {
+export class SupabaseBuildingModelRepository implements BuildingModelRepository, CadPlanSaver {
   constructor(private readonly gateway: BuildingSpacesGateway) {}
 
   async createSpace(space: BuildingSpaceDraft): Promise<BuildingSpace> {
@@ -230,6 +236,10 @@ export class SupabaseBuildingModelRepository implements BuildingModelRepository 
     });
     return { id: created.id, projectId: created.project_id };
   }
+
+  async saveCadPlan(plan: CadPlanDraft, spaceId?: string): Promise<SavedCadPlan> {
+    return this.gateway.saveCadPlan(plan, spaceId);
+  }
 }
 
 class SupabaseBuildingSpacesGateway implements BuildingSpacesGateway {
@@ -257,7 +267,7 @@ class SupabaseBuildingSpacesGateway implements BuildingSpacesGateway {
       .from("building_spaces")
       .select()
       .eq("project_id", projectId)
-      .order("created_at");
+      .order("updated_at", { ascending: false });
     if (error) throw error;
     return data;
   }
@@ -303,10 +313,21 @@ class SupabaseBuildingSpacesGateway implements BuildingSpacesGateway {
     if (error) throw error;
     return data;
   }
+
+  async saveCadPlan(plan: CadPlanDraft, spaceId?: string): Promise<SavedCadPlan> {
+    const { data, error } = await this.client.rpc("save_cad_plan", {
+      p_plan: plan as unknown as Json,
+      p_space_id: spaceId ?? null,
+    });
+    if (error) throw error;
+    const saved = data[0];
+    if (!saved) throw new Error("CAD plan persistence returned no result");
+    return { spaceId: saved.space_id, updatedAt: saved.updated_at };
+  }
 }
 
 export function createSupabaseBuildingModelRepository(
   client: SupabaseClient<Database>,
-): BuildingModelRepository {
+): BuildingModelRepository & CadPlanSaver {
   return new SupabaseBuildingModelRepository(new SupabaseBuildingSpacesGateway(client));
 }

@@ -56,6 +56,34 @@ const row: BuildingSpaceRow = {
 };
 
 describe("SupabaseBuildingModelRepository", () => {
+  it("delegates CAD replacement to one atomic gateway operation", async () => {
+    const gateway: BuildingSpacesGateway = {
+      getAuthenticatedUserId: vi.fn(),
+      insertSpace: vi.fn(),
+      findSpacesByProject: vi.fn(),
+      findFirstLevel: vi.fn(),
+      insertLevel: vi.fn(),
+      insertElement: vi.fn(),
+      findElementsByProject: vi.fn(),
+      saveCadPlan: vi.fn().mockResolvedValue({
+        spaceId: "space-1",
+        updatedAt: "2026-07-27T06:00:00Z",
+      }),
+    };
+    const plan = {
+      projectId: "project-1",
+      name: "Bany",
+      kind: "bathroom" as const,
+      vertices: polygonVertices,
+      clearHeightMm: 2500,
+      components: [],
+    };
+
+    await new SupabaseBuildingModelRepository(gateway).saveCadPlan(plan, "space-1");
+
+    expect(gateway.saveCadPlan).toHaveBeenCalledWith(plan, "space-1");
+  });
+
   it("maps the domain draft to an authenticated database insert", async () => {
     const gateway: BuildingSpacesGateway = {
       getAuthenticatedUserId: vi.fn().mockResolvedValue("user-1"),
@@ -65,6 +93,7 @@ describe("SupabaseBuildingModelRepository", () => {
       insertLevel: vi.fn(),
       insertElement: vi.fn(),
       findElementsByProject: vi.fn(),
+      saveCadPlan: vi.fn(),
     };
 
     const result = await new SupabaseBuildingModelRepository(gateway).createSpace(draft);
@@ -92,6 +121,7 @@ describe("SupabaseBuildingModelRepository", () => {
       insertLevel: vi.fn(),
       insertElement: vi.fn(),
       findElementsByProject: vi.fn(),
+      saveCadPlan: vi.fn(),
     };
 
     await expect(new SupabaseBuildingModelRepository(gateway).createSpace(draft)).rejects.toBe(

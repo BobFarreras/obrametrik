@@ -4,6 +4,13 @@ import type {
   BuildingSpace,
   BuildingSpaceDraft,
 } from "@obrametrik/domain";
+import type { CadPlanDraft } from "../models/cad-plan";
+
+export type SavedCadPlan = Readonly<{ spaceId: string; updatedAt: string }>;
+
+export interface CadPlanSaver {
+  saveCadPlan(plan: CadPlanDraft, spaceId?: string): Promise<SavedCadPlan>;
+}
 
 export interface BuildingSpaceWriter {
   createSpace(space: BuildingSpaceDraft): Promise<BuildingSpace>;

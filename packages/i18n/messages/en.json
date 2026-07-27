@@ -185,6 +185,12 @@
   "noPlanObjects": "Select a tool and tap a wall to add an element.",
   "savedSpaces": "Saved spaces",
   "unsavedPlan": "New space",
+  "savePending": "Pending changes",
+  "savingPlan": "Saving…",
+  "planSaved": "Saved",
+  "saveFailed": "Could not save. Please try again.",
+  "undo": "Undo",
+  "redo": "Redo",
   "millimetresUnit": "mm",
   "legacyMeasurements": "View legacy measurements"
 }

@@ -3,13 +3,14 @@
 import type { BuildingElement, BuildingSpace, Point2Mm, SpaceKind } from "@obrametrik/domain";
 import React from "react";
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { createCadSpace } from "../app/[locale]/dashboard/projects/[projectId]/actions";
+import { saveCadSpace } from "../app/[locale]/dashboard/projects/[projectId]/actions";
 
 type ComponentKind =
   "door" | "window" | "light" | "switch" | "socket" | "cold_water" | "hot_water" | "drain";
@@ -25,6 +26,21 @@ type Marker = {
   heightMm: number;
   elevationMm: number;
 };
+type CadDocumentSnapshot = {
+  vertices: readonly Point2Mm[];
+  height: number;
+  name: string;
+  kind: SpaceKind;
+  markers: readonly Marker[];
+};
+
+function cloneSnapshot(snapshot: CadDocumentSnapshot): CadDocumentSnapshot {
+  return {
+    ...snapshot,
+    vertices: snapshot.vertices.map((point) => ({ ...point })),
+    markers: snapshot.markers.map((marker) => ({ ...marker, point: { ...marker.point } })),
+  };
+}
 
 type CadMessages = {
   cadEditor: string;
@@ -60,6 +76,12 @@ type CadMessages = {
   noPlanObjects: string;
   savedSpaces: string;
   unsavedPlan: string;
+  savePending: string;
+  savingPlan: string;
+  planSaved: string;
+  saveFailed: string;
+  undo: string;
+  redo: string;
   millimetresUnit: string;
   bathroom: string;
   kitchen: string;
@@ -415,7 +437,20 @@ export function CadWorkspace({
   const [activeMarker, setActiveMarker] = useState<string | null>(null);
   const [selectedMarker, setSelectedMarker] = useState<string | null>(null);
   const [markers, setMarkers] = useState<readonly Marker[]>([]);
+  const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"clean" | "dirty" | "saving" | "error">("clean");
+  const [historyAvailability, setHistoryAvailability] = useState({
+    canUndo: false,
+    canRedo: false,
+  });
+  const lastSavedRef = useRef("");
+  const initialSpaceLoadedRef = useRef(false);
+  const historyRef = useRef<{
+    past: CadDocumentSnapshot[];
+    future: CadDocumentSnapshot[];
+  }>({ past: [], future: [] });
   const panStart = useRef<{ x: number; y: number; viewBox: ViewBox } | null>(null);
+  const dragCheckpointRef = useRef(false);
   const area = useMemo(() => polygonArea(vertices), [vertices]);
   const selected = markers.find((marker) => marker.id === selectedMarker);
   const toolLabels: Record<Tool, string> = {
@@ -445,7 +480,80 @@ export function CadWorkspace({
     })),
   });
 
+  function currentSnapshot(): CadDocumentSnapshot {
+    return cloneSnapshot({ vertices, height, name, kind, markers });
+  }
+
+  function checkpoint() {
+    const history = historyRef.current;
+    history.past.push(currentSnapshot());
+    if (history.past.length > 100) history.past.shift();
+    history.future = [];
+    setHistoryAvailability({ canUndo: true, canRedo: false });
+  }
+
+  function restoreSnapshot(snapshot: CadDocumentSnapshot) {
+    const restored = cloneSnapshot(snapshot);
+    setVertices(restored.vertices);
+    setHeight(restored.height);
+    setName(restored.name);
+    setKind(restored.kind);
+    setMarkers(restored.markers);
+    setSelectedMarker(null);
+    setViewBox(fitViewBox(restored.vertices));
+  }
+
+  function undo() {
+    const previous = historyRef.current.past.pop();
+    if (!previous) return;
+    historyRef.current.future.push(currentSnapshot());
+    restoreSnapshot(previous);
+    setHistoryAvailability({
+      canUndo: historyRef.current.past.length > 0,
+      canRedo: true,
+    });
+  }
+
+  function redo() {
+    const next = historyRef.current.future.pop();
+    if (!next) return;
+    historyRef.current.past.push(currentSnapshot());
+    restoreSnapshot(next);
+    setHistoryAvailability({
+      canUndo: true,
+      canRedo: historyRef.current.future.length > 0,
+    });
+  }
+
+  async function persistPlan(spaceId: string | null) {
+    setSaveState("saving");
+    const formData = new FormData();
+    formData.set("locale", locale);
+    formData.set("projectId", projectId);
+    formData.set("plan", serialized);
+    if (spaceId) formData.set("spaceId", spaceId);
+    const result = await saveCadSpace(formData);
+    if (result.status === "saved") {
+      setActiveSpaceId(result.spaceId);
+      lastSavedRef.current = serialized;
+      setSaveState("clean");
+    } else {
+      setSaveState("error");
+    }
+  }
+
+  useEffect(() => {
+    if (!activeSpaceId || serialized === lastSavedRef.current) return;
+    setSaveState("dirty");
+    const timeout = window.setTimeout(() => void persistPlan(activeSpaceId), 1200);
+    return () => window.clearTimeout(timeout);
+    // The serialized document is the autosave boundary; individual editor fields
+    // intentionally do not trigger separate persistence effects.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSpaceId, serialized]);
+
   function applyTemplate(template: Template) {
+    checkpoint();
     const next = templates[template].map((point) => ({ ...point }));
     setVertices(next);
     setViewBox(fitViewBox(next));
@@ -468,8 +576,7 @@ export function CadWorkspace({
     setName(space.name);
     setKind(space.kind);
     setSelectedMarker(null);
-    setMarkers(
-      elements
+    const loadedMarkers = elements
         .filter((element) => element.spaceId === space.id && element.kind !== "wall")
         .flatMap((element): Marker[] => {
           const terminalKind = element.specification.terminalKind;
@@ -500,9 +607,49 @@ export function CadWorkspace({
               elevationMm: element.transform.position.z,
             },
           ];
-        }),
-    );
+        });
+    setMarkers(loadedMarkers);
+    setActiveSpaceId(space.id);
+    lastSavedRef.current = JSON.stringify({
+      projectId,
+      name: space.name,
+      kind: space.kind,
+      vertices: nextVertices,
+      clearHeightMm: space.clearHeightMm,
+      components: loadedMarkers.map((marker) => ({
+        kind: marker.kind,
+        point: marker.point,
+        wallIndex: marker.wallIndex,
+        widthMm: marker.widthMm,
+        heightMm: marker.heightMm,
+        elevationMm: marker.elevationMm,
+      })),
+    });
+    setSaveState("clean");
+    historyRef.current = { past: [], future: [] };
+    setHistoryAvailability({ canUndo: false, canRedo: false });
   }
+
+  useEffect(() => {
+    if (initialSpaceLoadedRef.current || !spaces[0]) return;
+    initialSpaceLoadedRef.current = true;
+    loadSpace(spaces[0]);
+    // Loading server state once is initialization, not an editor mutation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spaces]);
+
+  useEffect(() => {
+    function handleHistoryShortcut(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
+      event.preventDefault();
+      if (event.shiftKey) redo();
+      else undo();
+    }
+    window.addEventListener("keydown", handleHistoryShortcut);
+    return () => window.removeEventListener("keydown", handleHistoryShortcut);
+    // History always captures the current rendered document before restoring.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vertices, height, name, kind, markers]);
 
   function zoom(factor: number) {
     setViewBox((current) => {
@@ -524,6 +671,7 @@ export function CadWorkspace({
 
   function handleCanvasPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
     if (tool !== "select") {
+      checkpoint();
       const nearest = closestWall(vertices, svgPoint(event), defaults[tool].widthMm);
       const marker: Marker = {
         id: crypto.randomUUID(),
@@ -544,6 +692,10 @@ export function CadWorkspace({
 
   function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     if (activeVertex !== null) {
+      if (!dragCheckpointRef.current) {
+        checkpoint();
+        dragCheckpointRef.current = true;
+      }
       const point = svgPoint(event);
       setVertices((current) =>
         current.map((vertex, index) => (index === activeVertex ? point : vertex)),
@@ -551,6 +703,10 @@ export function CadWorkspace({
       return;
     }
     if (activeMarker) {
+      if (!dragCheckpointRef.current) {
+        checkpoint();
+        dragCheckpointRef.current = true;
+      }
       const active = markers.find((marker) => marker.id === activeMarker);
       const nearest = closestWall(vertices, svgPoint(event), active?.widthMm ?? 0);
       setMarkers((current) =>
@@ -582,6 +738,7 @@ export function CadWorkspace({
   function finishPointerInteraction() {
     setActiveVertex(null);
     setActiveMarker(null);
+    dragCheckpointRef.current = false;
     panStart.current = null;
   }
 
@@ -611,14 +768,51 @@ export function CadWorkspace({
             {messages.mode3d}
           </button>
         </div>
-        <form action={createCadSpace}>
-          <input name="locale" type="hidden" value={locale} />
-          <input name="projectId" type="hidden" value={projectId} />
-          <input name="plan" type="hidden" value={serialized} />
-          <button className="button cad-save" type="submit">
+        <div className="cad-history-controls">
+          <button
+            type="button"
+            aria-label={messages.undo}
+            title={`${messages.undo} · Ctrl+Z`}
+            onClick={undo}
+            disabled={!historyAvailability.canUndo}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 7 4 12l5 5M5 12h8a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            aria-label={messages.redo}
+            title={`${messages.redo} · Ctrl+Shift+Z`}
+            onClick={redo}
+            disabled={!historyAvailability.canRedo}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m15 7 5 5-5 5m4-5h-8a6 6 0 0 0-6 6" fill="none" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
+        </div>
+        <div className="cad-save-group">
+          <span role="status">
+            {saveState === "dirty"
+              ? messages.savePending
+              : saveState === "saving"
+                ? messages.savingPlan
+                : saveState === "error"
+                  ? messages.saveFailed
+                  : activeSpaceId
+                    ? messages.planSaved
+                    : ""}
+          </span>
+          <button
+            className="button cad-save"
+            type="button"
+            onClick={() => void persistPlan(activeSpaceId)}
+            disabled={saveState === "saving"}
+          >
             {messages.savePlan}
           </button>
-        </form>
+        </div>
       </header>
 
       <div className="cad-workspace">
@@ -804,6 +998,7 @@ export function CadWorkspace({
                   max="20000"
                   step="10"
                   value={selected.widthMm}
+                  onFocus={checkpoint}
                   onChange={(event) => updateSelected({ widthMm: Number(event.target.value) })}
                 />
               </label>
@@ -817,6 +1012,7 @@ export function CadWorkspace({
                   max="20000"
                   step="10"
                   value={selected.heightMm}
+                  onFocus={checkpoint}
                   onChange={(event) => updateSelected({ heightMm: Number(event.target.value) })}
                 />
               </label>
@@ -830,6 +1026,7 @@ export function CadWorkspace({
                   max={height}
                   step="10"
                   value={selected.elevationMm}
+                  onFocus={checkpoint}
                   onChange={(event) => updateSelected({ elevationMm: Number(event.target.value) })}
                 />
               </label>
@@ -837,6 +1034,7 @@ export function CadWorkspace({
                 className="cad-delete-component"
                 type="button"
                 onClick={() => {
+                  checkpoint();
                   setMarkers((current) => current.filter((marker) => marker.id !== selected.id));
                   setSelectedMarker(null);
                 }}
@@ -849,7 +1047,11 @@ export function CadWorkspace({
               <span className="status-chip">{messages.planCoordinates}</span>
               <label>
                 {messages.spaceName}
-                <input value={name} onChange={(event) => setName(event.target.value)} />
+                <input
+                  value={name}
+                  onFocus={checkpoint}
+                  onChange={(event) => setName(event.target.value)}
+                />
               </label>
               <label>
                 {messages.spaceHeightMm}
@@ -861,12 +1063,17 @@ export function CadWorkspace({
                   max="20000"
                   step="50"
                   value={height}
+                  onFocus={checkpoint}
                   onChange={(event) => setHeight(Number(event.target.value))}
                 />
               </label>
               <label>
                 {messages.spaceName}
-                <select value={kind} onChange={(event) => setKind(event.target.value as SpaceKind)}>
+                <select
+                  value={kind}
+                  onFocus={checkpoint}
+                  onChange={(event) => setKind(event.target.value as SpaceKind)}
+                >
                   <option value="bathroom">{messages.bathroom}</option>
                   <option value="kitchen">{messages.kitchen}</option>
                   <option value="bedroom">{messages.bedroom}</option>

@@ -40,6 +40,10 @@ vista 3D generada del mateix model.
   mida fixa d'escriptori.
 - Seleccionar o arrossegar un component conserva el seu ancoratge a paret.
 - L'inspector permet editar dimensions i alçada del component seleccionat.
+- Les mutacions del document creen punts d'historial coherents. Desfer i refer
+  restauren geometria, propietats i components com una sola operació.
+- L'historial admet botons accessibles i els atajos `Ctrl/Cmd+Z` i
+  `Ctrl/Cmd+Shift+Z`; pan, zoom i selecció no embruten l'historial.
 
 ## Símbols i biblioteca essencial
 
@@ -58,6 +62,15 @@ vista 3D generada del mateix model.
 - 3D és una ajuda de comprensió, no un render fotorealista.
 
 ## Persistència
+
+- Un plànol desat conserva el mateix `spaceId`: els desats posteriors actualitzen
+  l'espai existent i no creen duplicats.
+- Espai, parets i components es desen en una única transacció PostgreSQL. Un
+  error no pot deixar geometria parcial.
+- El primer desat és explícit. Després, els canvis s'autodesen amb debounce i la
+  interfície mostra els estats pendent, desant, desat i error amb reintent.
+- El servidor torna a validar el projecte i el document complet; l'RPC s'executa
+  com a invocador i conserva les polítiques RLS.
 
 - El client envia una ordre validable, no files SQL.
 - El cas d'ús valida geometria abans del repositori.

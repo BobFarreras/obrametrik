@@ -1,12 +1,17 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { saveCadSpace } from "../app/[locale]/dashboard/projects/[projectId]/actions";
 import { CadWorkspace } from "./cad-workspace";
 
 afterEach(cleanup);
 
 vi.mock("../app/[locale]/dashboard/projects/[projectId]/actions", () => ({
-  createCadSpace: vi.fn(),
+  saveCadSpace: vi.fn().mockResolvedValue({
+    status: "saved",
+    spaceId: "space-1",
+    updatedAt: "2026-07-27T06:00:00Z",
+  }),
 }));
 
 const messages = {
@@ -43,6 +48,12 @@ const messages = {
   noPlanObjects: "Sin objetos",
   savedSpaces: "Guardados",
   unsavedPlan: "Espacio nuevo",
+  savePending: "Cambios pendientes",
+  savingPlan: "Guardando",
+  planSaved: "Guardado",
+  saveFailed: "Error al guardar",
+  undo: "Deshacer",
+  redo: "Rehacer",
   millimetresUnit: "mm",
   bathroom: "Baño",
   kitchen: "Cocina",
@@ -53,6 +64,91 @@ const messages = {
 };
 
 describe("CadWorkspace", () => {
+  it("undoes and redoes the complete CAD document", async () => {
+    render(
+      <CadWorkspace
+        locale="es"
+        projectId="project-1"
+        spaces={[]}
+        elements={[]}
+        messages={messages}
+      />,
+    );
+
+    expect(screen.getByText("12.00 m²")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Forma L" }));
+    expect(screen.queryByText("12.00 m²")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Deshacer" }));
+    expect(screen.getByText("12.00 m²")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Rehacer" }));
+    expect(screen.queryByText("12.00 m²")).toBeNull();
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(screen.getByText("12.00 m²")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
+    expect(screen.queryByText("12.00 m²")).toBeNull();
+  });
+
+  it("restores the persisted plan automatically when reopening a project", async () => {
+    const space = {
+      id: "space-restored",
+      projectId: "project-1",
+      levelId: "level-1",
+      name: "Cuina guardada",
+      kind: "kitchen" as const,
+      footprint: {
+        kind: "polygon" as const,
+        vertices: [
+          { x: 0, y: 0 },
+          { x: 5200, y: 0 },
+          { x: 5200, y: 3100 },
+          { x: 0, y: 3100 },
+        ],
+      },
+      clearHeightMm: 2780,
+      transform: {
+        position: { x: 0, y: 0, z: 0 },
+        rotationDegrees: { x: 0, y: 0, z: 0 },
+      },
+      geometrySource: "manual" as const,
+      confirmation: "confirmed" as const,
+    };
+
+    render(
+      <CadWorkspace
+        locale="es"
+        projectId="project-1"
+        spaces={[space]}
+        elements={[]}
+        messages={messages}
+      />,
+    );
+
+    await waitFor(() =>
+      expect((screen.getByLabelText("Altura") as HTMLInputElement).value).toBe("2780"),
+    );
+    expect(screen.getByDisplayValue("Cuina guardada")).toBeTruthy();
+  });
+
+  it("keeps the returned space identity after the first atomic save", async () => {
+    render(
+      <CadWorkspace
+        locale="es"
+        projectId="project-1"
+        spaces={[]}
+        elements={[]}
+        messages={messages}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(saveCadSpace).toHaveBeenCalledOnce());
+    expect(await screen.findByText("Guardado")).toBeTruthy();
+  });
+
   it("switches between the 2D editor and the 3D projection", () => {
     render(
       <CadWorkspace

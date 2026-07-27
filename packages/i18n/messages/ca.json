@@ -185,6 +185,12 @@
   "noPlanObjects": "Selecciona una eina i toca una paret per afegir un element.",
   "savedSpaces": "Espais desats",
   "unsavedPlan": "Espai nou",
+  "savePending": "Canvis pendents",
+  "savingPlan": "Desant…",
+  "planSaved": "Desat",
+  "saveFailed": "No s'ha pogut desar. Torna-ho a provar.",
+  "undo": "Desfer",
+  "redo": "Refer",
   "millimetresUnit": "mm",
   "legacyMeasurements": "Veure amidaments antics"
 }

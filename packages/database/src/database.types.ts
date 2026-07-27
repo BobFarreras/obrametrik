@@ -898,7 +898,16 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      save_cad_plan: {
+        Args: {
+          p_plan: Json;
+          p_space_id?: string | null;
+        };
+        Returns: {
+          space_id: string;
+          updated_at: string;
+        }[];
+      };
     };
     Enums: {
       app_locale: "ca" | "es" | "en";

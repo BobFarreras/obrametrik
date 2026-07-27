@@ -8,7 +8,7 @@ import {
   localeSchema,
   uuidSchema,
 } from "@obrametrik/validation";
-import { CreateCadPlanUseCase } from "@obrametrik/application";
+import { SaveCadPlanUseCase } from "@obrametrik/application";
 import { createSupabaseBuildingModelRepository } from "@obrametrik/database";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
@@ -93,22 +93,34 @@ export async function createMeasurement(formData: FormData) {
   revalidatePath(route.value);
 }
 
-export async function createCadSpace(formData: FormData) {
+export async function saveCadSpace(formData: FormData) {
   const route = path(formData);
   const serialized = String(formData.get("plan") ?? "");
-  if (!serialized || serialized.length > 100_000) return;
+  if (!serialized || serialized.length > 100_000) return { status: "error" as const };
 
   let input: unknown;
   try {
     input = JSON.parse(serialized);
   } catch {
-    return;
+    return { status: "error" as const };
   }
   const parsed = cadSpacePlanSchema.safeParse(input);
-  if (!parsed.success || parsed.data.projectId !== route.projectId) return;
+  if (!parsed.success || parsed.data.projectId !== route.projectId) {
+    return { status: "error" as const };
+  }
 
-  const supabase = await createSupabaseServerClient();
-  const repository = createSupabaseBuildingModelRepository(supabase);
-  await new CreateCadPlanUseCase(repository).execute(parsed.data);
-  revalidatePath(route.value);
+  try {
+    const supabase = await createSupabaseServerClient();
+    const repository = createSupabaseBuildingModelRepository(supabase);
+    const spaceIdValue = formData.get("spaceId");
+    const spaceId =
+      typeof spaceIdValue === "string" && spaceIdValue
+        ? uuidSchema.parse(spaceIdValue)
+        : undefined;
+    const saved = await new SaveCadPlanUseCase(repository).execute(parsed.data, spaceId);
+    revalidatePath(route.value);
+    return { status: "saved" as const, ...saved };
+  } catch {
+    return { status: "error" as const };
+  }
 }

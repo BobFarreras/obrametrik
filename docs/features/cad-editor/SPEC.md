@@ -54,6 +54,15 @@ vista 3D generada del mateix model.
 - `Shift+arrossegar` sobre el llenç crea un marc de selecció acumulatiu.
 - Tres o més components seleccionats es poden distribuir uniformement per cada
   paret amfitriona, sense barrejar elements de parets diferents.
+- Cada cota de paret és seleccionable i permet introduir la longitud exacta del
+  tram en mil·límetres; els components allotjats es reproyecten immediatament.
+- El mode `ORTHO`, actiu per defecte, conserva l'orientació horitzontal o
+  vertical de les dues parets adjacents quan es mou un vèrtex. Es pot desactivar
+  per editar geometria lliure.
+- L'eina de contorn lliure afegeix punts amb clic o toc, mostra una
+  previsualització i ofereix accions explícites de finalitzar i cancel·lar.
+- Finalitzar exigeix almenys tres punts, trams no nuls i un polígon sense
+  autointerseccions. Un contorn invàlid no substitueix el plànol existent.
 - L'inspector permet editar dimensions i alçada del component seleccionat.
 - Les mutacions del document creen punts d'historial coherents. Desfer i refer
   restauren geometria, propietats i components com una sola operació.
@@ -75,6 +84,19 @@ vista 3D generada del mateix model.
 - Les obertures i punts conserven paret i posició.
 - La vista permet rotació visual sense alterar la geometria de l'obra.
 - 3D és una ajuda de comprensió, no un render fotorealista.
+- El viewport calcula el centre i l'escala a partir del volum complet; cap forma
+  depèn d'un canvas fix ni queda descentrada per l'origen de coordenades.
+- Presets sincronitzats: planta superior, frontal, lateral, isomètrica i
+  perspectiva.
+- Isomètrica i perspectiva permeten òrbita, zoom, pan i reenquadrament. Les
+  vistes ortogràfiques mantenen escala tècnica sense deformació de perspectiva.
+- Els components es poden seleccionar en qualsevol projecció. L'alçat mostra
+  explícitament la seva cota vertical en `mm` i reutilitza el mateix inspector.
+- L'alçat navega paret a paret, representa portes i finestres a mida real i
+  permet arrossegar punts en horizontal i vertical mantenint el seu host.
+- El mode recorregut situa la càmera a altura ocular en un punt realment
+  interior, permet mirada amb arrossegament i moviment amb fletxes, WASD o
+  controls visibles. La càmera no pot travessar el contorn de l'espai.
 
 ## Persistència
 

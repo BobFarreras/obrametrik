@@ -19,6 +19,22 @@ const messages = {
   cadEditorHelp: "Ayuda",
   mode2d: "Planta 2D",
   mode3d: "Vista 3D",
+  viewTop: "Planta",
+  viewFront: "Frontal",
+  viewRight: "Lateral",
+  viewElevation: "Alzado de pared",
+  viewIso: "Isométrica",
+  viewPerspective: "Perspectiva",
+  viewWalk: "Recorrido",
+  fit3d: "Encuadrar",
+  orbitHelp: "Arrastra para orbitar",
+  walkHelp: "Flechas/WASD para moverte",
+  previousWall: "Pared anterior",
+  nextWall: "Pared siguiente",
+  moveForward: "Avanzar",
+  moveBackward: "Retroceder",
+  turnLeft: "Girar a la izquierda",
+  turnRight: "Girar a la derecha",
   selectTool: "Seleccionar",
   doorTool: "Puerta",
   windowTool: "Ventana",
@@ -61,6 +77,13 @@ const messages = {
   duplicateComponents: "Duplicar",
   distributeComponents: "Distribuir",
   componentPositionMm: "Posición en la pared",
+  wallSelected: "Pared seleccionada",
+  wallLengthMm: "Longitud de la pared",
+  orthogonalConstraint: "Restricción ortogonal",
+  drawContour: "Dibujar contorno",
+  finishContour: "Finalizar",
+  cancelDrawing: "Cancelar",
+  invalidContour: "El contorno debe tener al menos tres puntos y no puede cruzarse.",
   millimetresUnit: "mm",
   bathroom: "Baño",
   kitchen: "Cocina",
@@ -175,6 +198,25 @@ describe("CadWorkspace", () => {
       "true",
     );
     expect(screen.getByRole("img", { name: "Vista 3D" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Isométrica" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Frontal" }));
+    expect(screen.getByRole("button", { name: "Frontal" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Lateral" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Perspectiva" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Alzado de pared" }));
+    expect(screen.getByRole("button", { name: "Pared anterior" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pared siguiente" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Recorrido" }));
+    expect(screen.getByText("Flechas/WASD para moverte")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Avanzar" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retroceder" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Girar a la izquierda" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Girar a la derecha" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Encuadrar" })).toBeTruthy();
   });
 
   it("offers professional shape templates and millimetre inputs", () => {
@@ -191,6 +233,34 @@ describe("CadWorkspace", () => {
     expect(screen.getByRole("button", { name: "Forma L" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Forma U" })).toBeTruthy();
     expect((screen.getByLabelText("Altura") as HTMLInputElement).value).toBe("2500");
+    expect(
+      screen.getByRole("button", { name: "Restricción ortogonal" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Pared seleccionada 1" }));
+    expect((screen.getByLabelText("Longitud de la pared") as HTMLInputElement).value).toBe("4000");
+    fireEvent.change(screen.getByLabelText("Longitud de la pared"), {
+      target: { value: "5200" },
+    });
+    expect((screen.getByLabelText("Longitud de la pared") as HTMLInputElement).value).toBe("5200");
+  });
+
+  it("keeps the existing plan when an unfinished free contour is invalid", () => {
+    render(
+      <CadWorkspace
+        locale="es"
+        projectId="project-1"
+        spaces={[]}
+        elements={[]}
+        messages={messages}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Dibujar contorno" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finalizar" }));
+
+    expect(screen.getByRole("alert").textContent).toContain("al menos tres puntos");
+    expect(screen.getByText("12.00 m²")).toBeTruthy();
   });
 
   it("offers fitted navigation and distinct technical systems", () => {

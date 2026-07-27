@@ -11,6 +11,8 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { saveCadSpace } from "../app/[locale]/dashboard/projects/[projectId]/actions";
+import { findInteriorPoint, moveWalkCamera, wallOpeningCorners } from "./cad-camera";
+import { isSimplePolygon, moveVertex, resizeWall } from "./cad-polygon-geometry";
 import {
   distributeHostedMarkers,
   hostedMarkerIdsInBox,
@@ -22,7 +24,7 @@ import {
 
 type ComponentKind =
   "door" | "window" | "light" | "switch" | "socket" | "cold_water" | "hot_water" | "drain";
-type Tool = "select" | ComponentKind;
+type Tool = "select" | "draw" | ComponentKind;
 type Template = "rectangle" | "l_shape" | "u_shape";
 type ViewBox = { x: number; y: number; width: number; height: number };
 type SelectionBox = { start: Point2Mm; current: Point2Mm };
@@ -56,7 +58,27 @@ type CadMessages = {
   cadEditorHelp: string;
   mode2d: string;
   mode3d: string;
+  viewTop: string;
+  viewFront: string;
+  viewRight: string;
+  viewElevation: string;
+  viewIso: string;
+  viewPerspective: string;
+  viewWalk: string;
+  fit3d: string;
+  orbitHelp: string;
+  walkHelp: string;
+  previousWall: string;
+  nextWall: string;
+  moveForward: string;
+  moveBackward: string;
+  turnLeft: string;
+  turnRight: string;
   selectTool: string;
+  drawContour: string;
+  finishContour: string;
+  cancelDrawing: string;
+  invalidContour: string;
   doorTool: string;
   windowTool: string;
   lightTool: string;
@@ -98,6 +120,9 @@ type CadMessages = {
   pasteComponents: string;
   duplicateComponents: string;
   distributeComponents: string;
+  wallSelected: string;
+  wallLengthMm: string;
+  orthogonalConstraint: string;
   millimetresUnit: string;
   bathroom: string;
   kitchen: string;
@@ -148,6 +173,15 @@ const defaults: Record<ComponentKind, Pick<Marker, "widthMm" | "heightMm" | "ele
 function ToolIcon({ kind }: { kind: Tool }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8 } as const;
   if (kind === "select") return <path {...common} d="m5 3 10 9-5 .8 2.5 5.2-2 1-2.5-5.2-3 3Z" />;
+  if (kind === "draw")
+    return (
+      <>
+        <path {...common} d="M5 18 9 6l10 4-4 9Z" />
+        <circle fill="currentColor" cx="5" cy="18" r="1.7" />
+        <circle fill="currentColor" cx="9" cy="6" r="1.7" />
+        <circle fill="currentColor" cx="19" cy="10" r="1.7" />
+      </>
+    );
   if (kind === "door")
     return (
       <>
@@ -363,65 +397,500 @@ function CadSymbol({
   );
 }
 
+type TechnicalView =
+  | "top"
+  | "front"
+  | "right"
+  | "elevation"
+  | "iso"
+  | "perspective"
+  | "walk";
+
+const technicalViewCamera: Record<TechnicalView, { yaw: number; pitch: number }> = {
+  top: { yaw: 0, pitch: 0 },
+  front: { yaw: 0, pitch: 90 },
+  right: { yaw: 90, pitch: 90 },
+  elevation: { yaw: 0, pitch: 90 },
+  iso: { yaw: -42, pitch: 55 },
+  perspective: { yaw: -35, pitch: 48 },
+  walk: { yaw: 0, pitch: 0 },
+};
+
 function Plan3D({
   vertices,
   height,
   markers,
+  markerLabels,
   label,
+  viewLabels,
+  selectedMarkerIds,
+  onSelectMarker,
+  onStartMarkerMove,
+  onMoveMarker,
 }: {
   vertices: readonly Point2Mm[];
   height: number;
   markers: readonly Marker[];
+  markerLabels: Record<ComponentKind, string>;
   label: string;
+  viewLabels: Record<TechnicalView, string> & {
+    fit: string;
+    orbitHelp: string;
+    walkHelp: string;
+    previousWall: string;
+    nextWall: string;
+    moveForward: string;
+    moveBackward: string;
+    turnLeft: string;
+    turnRight: string;
+  };
+  selectedMarkerIds: readonly string[];
+  onSelectMarker: (markerId: string) => void;
+  onStartMarkerMove: () => void;
+  onMoveMarker: (markerId: string, offsetMm: number, elevationMm: number) => void;
 }) {
+  const [view, setView] = useState<TechnicalView>("iso");
+  const [yaw, setYaw] = useState(technicalViewCamera.iso.yaw);
+  const [pitch, setPitch] = useState(technicalViewCamera.iso.pitch);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [elevationWallIndex, setElevationWallIndex] = useState(0);
+  const cameraDrag = useRef<{
+    x: number;
+    y: number;
+    yaw: number;
+    pitch: number;
+    pan: { x: number; y: number };
+    mode: "orbit" | "pan";
+  } | null>(null);
+  const elevationMarkerDrag = useRef<string | null>(null);
   const bounds = fitViewBox(vertices);
-  const extent = Math.max(bounds.width, bounds.height, height);
-  const scale = 300 / Math.max(extent, 1);
-  const project = (point: Point2Mm, z = 0) => ({
-    x: 400 + (point.x - bounds.x - (point.y - bounds.y)) * scale * 0.72,
-    y: 390 + (point.x - bounds.x + (point.y - bounds.y)) * scale * 0.36 - z * scale,
-  });
+  const center = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+    z: height / 2,
+  };
+  const [walkPosition, setWalkPosition] = useState(() => findInteriorPoint(vertices));
+  const extent = Math.max(bounds.width, bounds.height, height, 1);
+  const scale = (520 / extent) * zoom;
+  const yawRadians = (yaw * Math.PI) / 180;
+  const pitchRadians = (pitch * Math.PI) / 180;
+
+  function project(point: Point2Mm, z = 0) {
+    if (view === "walk") {
+      const cameraZ = Math.min(1600, Math.max(900, height - 250));
+      const walkYaw = (yaw * Math.PI) / 180;
+      const walkPitch = (pitch * Math.PI) / 180;
+      const dx = point.x - walkPosition.x;
+      const dy = point.y - walkPosition.y;
+      const dz = z - cameraZ;
+      const forward = dx * Math.cos(walkYaw) + dy * Math.sin(walkYaw);
+      const right = -dx * Math.sin(walkYaw) + dy * Math.cos(walkYaw);
+      const forwardWithPitch = forward * Math.cos(walkPitch) + dz * Math.sin(walkPitch);
+      const up = dz * Math.cos(walkPitch) - forward * Math.sin(walkPitch);
+      const visible = forwardWithPitch > 80;
+      const divisor = Math.max(forwardWithPitch, 80);
+      return {
+        x: 500 + (right / divisor) * 650,
+        y: 350 - (up / divisor) * 650,
+        depth: forwardWithPitch,
+        visible,
+      };
+    }
+    const dx = point.x - center.x;
+    const dy = point.y - center.y;
+    const dz = z - center.z;
+    const rotatedX = dx * Math.cos(yawRadians) - dy * Math.sin(yawRadians);
+    const rotatedY = dx * Math.sin(yawRadians) + dy * Math.cos(yawRadians);
+    const vertical = rotatedY * Math.cos(pitchRadians) - dz * Math.sin(pitchRadians);
+    const depth = rotatedY * Math.sin(pitchRadians) + dz * Math.cos(pitchRadians);
+    const perspective =
+      view === "perspective" ? Math.max(0.45, Math.min(1.8, 9000 / (9000 + depth))) : 1;
+    return {
+      x: 500 + pan.x + rotatedX * scale * perspective,
+      y: 350 + pan.y + vertical * scale * perspective,
+      depth,
+      visible: true,
+    };
+  }
+
+  function selectView(next: TechnicalView) {
+    setView(next);
+    setYaw(technicalViewCamera[next].yaw);
+    setPitch(technicalViewCamera[next].pitch);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    if (next === "walk") {
+      setWalkPosition(findInteriorPoint(vertices));
+      setYaw(0);
+      setPitch(0);
+    }
+  }
+
+  useEffect(() => {
+    if (view !== "walk") return;
+    function handleWalkKeys(event: KeyboardEvent) {
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "arrowleft") {
+        event.preventDefault();
+        setYaw((current) => current - 6);
+      } else if (key === "arrowright") {
+        event.preventDefault();
+        setYaw((current) => current + 6);
+      } else if (key === "arrowup" || key === "w") {
+        event.preventDefault();
+        setWalkPosition((current) => moveWalkCamera(current, yaw, 200, 0, vertices));
+      } else if (key === "arrowdown" || key === "s") {
+        event.preventDefault();
+        setWalkPosition((current) => moveWalkCamera(current, yaw, -200, 0, vertices));
+      } else if (key === "a") {
+        event.preventDefault();
+        setWalkPosition((current) => moveWalkCamera(current, yaw, 0, -200, vertices));
+      } else if (key === "d") {
+        event.preventDefault();
+        setWalkPosition((current) => moveWalkCamera(current, yaw, 0, 200, vertices));
+      }
+    }
+    window.addEventListener("keydown", handleWalkKeys);
+    return () => window.removeEventListener("keydown", handleWalkKeys);
+  }, [view, vertices, yaw]);
+
+  function startCameraDrag(event: ReactPointerEvent<SVGSVGElement>) {
+    cameraDrag.current = {
+      x: event.clientX,
+      y: event.clientY,
+      yaw,
+      pitch,
+      pan,
+      mode:
+        event.shiftKey ||
+        view === "top" ||
+        view === "front" ||
+        view === "right" ||
+        view === "elevation"
+          ? "pan"
+          : "orbit",
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveCamera(event: ReactPointerEvent<SVGSVGElement>) {
+    if (view === "elevation" && elevationMarkerDrag.current) {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const localX = ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * 1000;
+      const localY = ((event.clientY - bounds.top) / Math.max(bounds.height, 1)) * 700;
+      onMoveMarker(
+        elevationMarkerDrag.current,
+        Math.max(0, Math.min(elevationWallLength, (localX - 140) / elevationScaleX)),
+        Math.max(0, Math.min(height, (560 - localY) / elevationScaleZ)),
+      );
+      return;
+    }
+    const drag = cameraDrag.current;
+    if (!drag) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (drag.mode === "pan") {
+      setPan({ x: drag.pan.x + dx, y: drag.pan.y + dy });
+    } else {
+      setYaw(drag.yaw + dx * 0.35);
+      setPitch(
+        view === "walk"
+          ? Math.max(-45, Math.min(45, drag.pitch - dy * 0.2))
+          : Math.max(10, Math.min(85, drag.pitch - dy * 0.3)),
+      );
+    }
+  }
+
   const points = (items: readonly { x: number; y: number }[]) =>
     items.map((point) => `${point.x},${point.y}`).join(" ");
+  const wallFaces = vertices
+    .map((start, index) => {
+      const end = vertices[(index + 1) % vertices.length]!;
+      const projected = [project(start), project(end), project(end, height), project(start, height)];
+      return { index, projected, depth: projected.reduce((sum, point) => sum + point.depth, 0) / 4 };
+    })
+    .sort((a, b) => a.depth - b.depth);
+  const openingFaces = markers
+    .filter((marker) => marker.kind === "door" || marker.kind === "window")
+    .flatMap((marker) => {
+      const wallStart = vertices[marker.wallIndex];
+      const wallEnd = vertices[(marker.wallIndex + 1) % vertices.length];
+      if (!wallStart || !wallEnd) return [];
+      const corners = wallOpeningCorners(
+        marker.point,
+        wallStart,
+        wallEnd,
+        marker.widthMm,
+        marker.elevationMm,
+        marker.heightMm,
+      );
+      const projected = corners.map((corner) => project(corner, corner.z));
+      return [{ marker, projected, depth: projected.reduce((sum, point) => sum + point.depth, 0) / 4 }];
+    })
+    .sort((a, b) => a.depth - b.depth);
+  const elevationStart = vertices[elevationWallIndex] ?? vertices[0]!;
+  const elevationEnd =
+    vertices[(elevationWallIndex + 1) % vertices.length] ?? vertices[1]!;
+  const elevationWallLength = Math.max(1, edgeLength(elevationStart, elevationEnd));
+  const elevationScaleX = 720 / elevationWallLength;
+  const elevationScaleZ = 460 / Math.max(height, 1);
+  const elevationMarkers = markers.filter((marker) => marker.wallIndex === elevationWallIndex);
+
+  function movePerson(forwardMm: number) {
+    setWalkPosition((current) => moveWalkCamera(current, yaw, forwardMm, 0, vertices));
+  }
+
   return (
-    <svg className="cad-3d" viewBox="0 0 800 560" role="img" aria-label={label}>
-      <polygon
-        points={points(vertices.map((point) => project(point)))}
-        fill="#dfe7e2"
-        stroke="#2a4b4f"
-        strokeWidth="5"
-      />
-      {vertices.map((start, index) => {
-        const end = vertices[(index + 1) % vertices.length]!;
-        return (
-          <polygon
-            key={`${start.x}-${start.y}`}
-            points={points([
-              project(start),
-              project(end),
-              project(end, height),
-              project(start, height),
-            ])}
-            fill={index % 2 ? "rgba(42,75,79,.14)" : "rgba(244,172,61,.13)"}
-            stroke="#2a4b4f"
-            strokeWidth="3"
-          />
-        );
-      })}
-      {markers.map((marker) => {
-        const point = project(marker.point, marker.elevationMm);
-        return (
-          <g key={marker.id} transform={`translate(${point.x} ${point.y})`}>
-            <circle r="14" fill="#fff" stroke="#1c3133" strokeWidth="2" />
-            <g transform="translate(-10 -10)" color="#1c3133">
-              <svg width="20" height="20" viewBox="0 0 24 24">
-                <ToolIcon kind={marker.kind} />
-              </svg>
+    <div className="cad-technical-viewport">
+      <div className="cad-view-presets" aria-label={label}>
+        {(Object.keys(technicalViewCamera) as TechnicalView[]).map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            className={view === preset ? "is-active" : ""}
+            aria-pressed={view === preset}
+            onClick={() => selectView(preset)}
+          >
+            {viewLabels[preset]}
+          </button>
+        ))}
+        {view === "elevation" ? (
+          <>
+            <button
+              type="button"
+              aria-label={viewLabels.previousWall}
+              onClick={() =>
+                setElevationWallIndex(
+                  (current) => (current - 1 + vertices.length) % vertices.length,
+                )
+              }
+            >
+              ← W
+            </button>
+            <button
+              type="button"
+              aria-label={viewLabels.nextWall}
+              onClick={() =>
+                setElevationWallIndex((current) => (current + 1) % vertices.length)
+              }
+            >
+              W →
+            </button>
+          </>
+        ) : null}
+        <button type="button" onClick={() => selectView(view)}>{viewLabels.fit}</button>
+      </div>
+      <span className="cad-camera-help">
+        {view === "walk" ? viewLabels.walkHelp : viewLabels.orbitHelp}
+      </span>
+      {view === "walk" ? (
+        <div className="cad-walk-controls">
+          <button type="button" aria-label={viewLabels.moveForward} onClick={() => movePerson(200)}>↑</button>
+          <button type="button" aria-label={viewLabels.turnLeft} onClick={() => setYaw((current) => current - 8)}>←</button>
+          <button type="button" aria-label={viewLabels.moveBackward} onClick={() => movePerson(-200)}>↓</button>
+          <button type="button" aria-label={viewLabels.turnRight} onClick={() => setYaw((current) => current + 8)}>→</button>
+        </div>
+      ) : null}
+      <svg
+        className="cad-3d"
+        viewBox="0 0 1000 700"
+        role="img"
+        aria-label={label}
+        onPointerDown={startCameraDrag}
+        onPointerMove={moveCamera}
+        onPointerUp={() => {
+          cameraDrag.current = null;
+          elevationMarkerDrag.current = null;
+        }}
+        onPointerLeave={() => {
+          cameraDrag.current = null;
+          elevationMarkerDrag.current = null;
+        }}
+        onWheel={(event) => {
+          event.preventDefault();
+          setZoom((current) => Math.max(0.25, Math.min(5, current * (event.deltaY > 0 ? 0.9 : 1.1))));
+        }}
+      >
+        {view === "elevation" ? (
+          <>
+            <rect x="140" y="100" width="720" height="460" fill="#f8faf8" stroke="#2a4b4f" strokeWidth="5" />
+            <line x1="110" y1="560" x2="890" y2="560" stroke="#1c3133" strokeWidth="6" />
+            <text x="500" y="625" textAnchor="middle" fontSize="24" fontWeight="800">
+              W{elevationWallIndex + 1} · {elevationWallLength} mm
+            </text>
+            <text x="92" y="340" textAnchor="middle" fontSize="22" fontWeight="800" transform="rotate(-90 92 340)">
+              {height} mm
+            </text>
+            {elevationMarkers.map((marker) => {
+              const offset = hostedMarkerOffsetMm(marker, vertices);
+              const x = 140 + offset * elevationScaleX;
+              const y = 560 - marker.elevationMm * elevationScaleZ;
+              const selected = selectedMarkerIds.includes(marker.id);
+              if (marker.kind === "door" || marker.kind === "window") {
+                return (
+                  <g
+                    key={marker.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${markerLabels[marker.kind]} · ${marker.elevationMm} mm`}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      onSelectMarker(marker.id);
+                      onStartMarkerMove();
+                      elevationMarkerDrag.current = marker.id;
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") onSelectMarker(marker.id);
+                    }}
+                  >
+                    <rect
+                      x={x - (marker.widthMm * elevationScaleX) / 2}
+                      y={y - marker.heightMm * elevationScaleZ}
+                      width={marker.widthMm * elevationScaleX}
+                      height={marker.heightMm * elevationScaleZ}
+                      fill={marker.kind === "window" ? "#dceef2" : "#f4e7d6"}
+                      stroke={selected ? "#f4ac3d" : "#2a4b4f"}
+                      strokeWidth={selected ? 8 : 4}
+                    />
+                    {marker.kind === "window" ? (
+                      <line
+                        x1={x}
+                        y1={y - marker.heightMm * elevationScaleZ}
+                        x2={x}
+                        y2={y}
+                        stroke="#2a4b4f"
+                        strokeWidth="3"
+                      />
+                    ) : null}
+                  </g>
+                );
+              }
+              return (
+                <g
+                  key={marker.id}
+                  transform={`translate(${x} ${y})`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${markerLabels[marker.kind]} · ${marker.elevationMm} mm`}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    onSelectMarker(marker.id);
+                    onStartMarkerMove();
+                    elevationMarkerDrag.current = marker.id;
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                  }}
+                >
+                  <circle r={selected ? 24 : 19} fill={selected ? "#f4ac3d" : "#fff"} stroke="#1c3133" strokeWidth="4" />
+                  <g transform="translate(-12 -12)" color="#1c3133">
+                    <svg width="24" height="24" viewBox="0 0 24 24"><ToolIcon kind={marker.kind} /></svg>
+                  </g>
+                  <text x="28" y="-22" fontSize="20" fontWeight="800">{marker.elevationMm} mm</text>
+                </g>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            {vertices.map((point) => project(point)).every((point) => point.visible) ? (
+              <polygon
+                points={points(vertices.map((point) => project(point)))}
+                fill="#dfe7e2"
+                stroke="#2a4b4f"
+                strokeWidth="5"
+              />
+            ) : null}
+            {wallFaces
+              .filter(({ projected }) => projected.every((point) => point.visible))
+              .map(({ index, projected }) => (
+                <polygon
+                  key={`wall-face-${index}`}
+                  points={points(projected)}
+                  fill={index % 2 ? "rgba(42,75,79,.18)" : "rgba(244,172,61,.16)"}
+                  stroke="#2a4b4f"
+                  strokeWidth="3"
+                />
+              ))}
+            {openingFaces
+              .filter(({ projected }) => projected.every((point) => point.visible))
+              .map(({ marker, projected }) => (
+                <g
+                  key={`opening-${marker.id}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${markerLabels[marker.kind]} · ${marker.elevationMm} mm`}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    onSelectMarker(marker.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") onSelectMarker(marker.id);
+                  }}
+                >
+                  <polygon
+                    points={points(projected)}
+                    fill={marker.kind === "window" ? "rgba(198,229,238,.92)" : "#f8f5ef"}
+                    stroke="#1c3133"
+                    strokeWidth="5"
+                  />
+                  {marker.kind === "window" ? (
+                    <line
+                      x1={(projected[0]!.x + projected[3]!.x) / 2}
+                      y1={(projected[0]!.y + projected[3]!.y) / 2}
+                      x2={(projected[1]!.x + projected[2]!.x) / 2}
+                      y2={(projected[1]!.y + projected[2]!.y) / 2}
+                      stroke="#2a4b4f"
+                      strokeWidth="3"
+                    />
+                  ) : null}
+                </g>
+              ))}
+          </>
+        )}
+        {view !== "elevation" && markers.filter((marker) => marker.kind !== "door" && marker.kind !== "window").map((marker) => {
+          const point = project(marker.point, marker.elevationMm);
+          if (!point.visible) return null;
+          const selected = selectedMarkerIds.includes(marker.id);
+          return (
+            <g
+              key={marker.id}
+              transform={`translate(${point.x} ${point.y})`}
+              role="button"
+              tabIndex={0}
+              aria-label={`${markerLabels[marker.kind]} · ${marker.elevationMm} mm`}
+              onPointerDown={(event) => {
+                event.stopPropagation();
+                onSelectMarker(marker.id);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") onSelectMarker(marker.id);
+              }}
+            >
+              <circle r={selected ? 20 : 16} fill={selected ? "#f4ac3d" : "#fff"} stroke="#1c3133" strokeWidth="3" />
+              <g transform="translate(-11 -11)" color="#1c3133">
+                <svg width="22" height="22" viewBox="0 0 24 24">
+                  <ToolIcon kind={marker.kind} />
+                </svg>
+              </g>
+              {(view === "front" || view === "right") && (
+                <text x="24" y="-18" fontSize="18" fontWeight="800" fill="#1c3133">
+                  {marker.elevationMm} mm
+                </text>
+              )}
             </g>
-          </g>
-        );
-      })}
-    </svg>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 
@@ -468,6 +937,10 @@ export function CadWorkspace({
   const componentClipboardRef = useRef<readonly Marker[]>([]);
   const [hasComponentClipboard, setHasComponentClipboard] = useState(false);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
+  const [selectedWallIndex, setSelectedWallIndex] = useState<number | null>(null);
+  const [orthogonalConstraint, setOrthogonalConstraint] = useState(true);
+  const [drawingVertices, setDrawingVertices] = useState<readonly Point2Mm[] | null>(null);
+  const [drawingError, setDrawingError] = useState<string | null>(null);
   const panStart = useRef<{ x: number; y: number; viewBox: ViewBox } | null>(null);
   const dragCheckpointRef = useRef(false);
   const area = useMemo(() => polygonArea(vertices), [vertices]);
@@ -475,6 +948,7 @@ export function CadWorkspace({
   const selected = markers.find((marker) => marker.id === selectedMarker);
   const toolLabels: Record<Tool, string> = {
     select: messages.selectTool,
+    draw: messages.drawContour,
     door: messages.doorTool,
     window: messages.windowTool,
     light: messages.lightTool,
@@ -520,6 +994,7 @@ export function CadWorkspace({
     setKind(restored.kind);
     setMarkers(restored.markers);
     setSelectedMarkerIds([]);
+    setSelectedWallIndex(null);
     setViewBox(fitViewBox(restored.vertices));
   }
 
@@ -583,6 +1058,28 @@ export function CadWorkspace({
     setMarkers((current) => current.map((marker) => byId.get(marker.id) ?? marker));
   }
 
+  function finishContour() {
+    if (!drawingVertices || !isSimplePolygon(drawingVertices)) {
+      setDrawingError(messages.invalidContour);
+      return;
+    }
+    checkpoint();
+    setVertices(drawingVertices.map((point) => ({ ...point })));
+    setViewBox(fitViewBox(drawingVertices));
+    setMarkers([]);
+    setSelectedMarkerIds([]);
+    setSelectedWallIndex(null);
+    setDrawingVertices(null);
+    setDrawingError(null);
+    setTool("select");
+  }
+
+  function cancelDrawing() {
+    setDrawingVertices(null);
+    setDrawingError(null);
+    setTool("select");
+  }
+
   async function persistPlan(spaceId: string | null) {
     setSaveState("saving");
     const formData = new FormData();
@@ -617,6 +1114,7 @@ export function CadWorkspace({
     setViewBox(fitViewBox(next));
     setMarkers([]);
     setSelectedMarkerIds([]);
+    setSelectedWallIndex(null);
   }
 
   function updateSelected(values: Partial<Marker>) {
@@ -713,13 +1211,16 @@ export function CadWorkspace({
       } else if (command && key === "d" && selectedMarkerIds.length) {
         event.preventDefault();
         duplicateSelectedComponents();
+      } else if (event.key === "Escape" && drawingVertices) {
+        event.preventDefault();
+        cancelDrawing();
       }
     }
     window.addEventListener("keydown", handleEditorShortcut);
     return () => window.removeEventListener("keydown", handleEditorShortcut);
     // History always captures the current rendered document before restoring.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vertices, height, name, kind, markers, selectedMarkerIds]);
+  }, [vertices, height, name, kind, markers, selectedMarkerIds, drawingVertices]);
 
   function zoom(factor: number) {
     setViewBox((current) => {
@@ -740,6 +1241,21 @@ export function CadWorkspace({
   }
 
   function handleCanvasPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
+    if (tool === "draw") {
+      const point = svgPoint(event);
+      const first = drawingVertices?.[0];
+      if (
+        first &&
+        (drawingVertices?.length ?? 0) >= 3 &&
+        Math.hypot(point.x - first.x, point.y - first.y) <= 250
+      ) {
+        finishContour();
+        return;
+      }
+      setDrawingVertices((current) => [...(current ?? []), point]);
+      setDrawingError(null);
+      return;
+    }
     if (tool !== "select") {
       checkpoint();
       const nearest = closestWall(vertices, svgPoint(event), defaults[tool].widthMm);
@@ -752,6 +1268,7 @@ export function CadWorkspace({
       };
       setMarkers((current) => [...current, marker]);
       setSelectedMarkerIds([marker.id]);
+      setSelectedWallIndex(null);
       setTool("select");
       return;
     }
@@ -762,6 +1279,7 @@ export function CadWorkspace({
       return;
     }
     setSelectedMarkerIds([]);
+    setSelectedWallIndex(null);
     panStart.current = { x: event.clientX, y: event.clientY, viewBox };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
@@ -777,9 +1295,7 @@ export function CadWorkspace({
         dragCheckpointRef.current = true;
       }
       const point = svgPoint(event);
-      const nextVertices = vertices.map((vertex, index) =>
-        index === activeVertex ? point : vertex,
-      );
+      const nextVertices = moveVertex(vertices, activeVertex, point, orthogonalConstraint);
       setVertices(nextVertices);
       setMarkers((current) => reprojectHostedMarkers(current, vertices, nextVertices));
       return;
@@ -934,6 +1450,7 @@ export function CadWorkspace({
           {(
             [
               "select",
+              "draw",
               "door",
               "window",
               "light",
@@ -948,7 +1465,13 @@ export function CadWorkspace({
               key={value}
               type="button"
               className={tool === value ? "is-active" : ""}
-              onClick={() => setTool(value)}
+              onClick={() => {
+                setTool(value);
+                if (value === "draw") {
+                  setDrawingVertices([]);
+                  setDrawingError(null);
+                }
+              }}
               aria-label={toolLabels[value]}
               aria-pressed={tool === value}
               title={toolLabels[value]}
@@ -965,6 +1488,24 @@ export function CadWorkspace({
           <div className="cad-stage-meta">
             <span>{area.toFixed(2)} m²</span>
             <span>SNAP 50</span>
+            <button
+              type="button"
+              aria-label={messages.orthogonalConstraint}
+              aria-pressed={orthogonalConstraint}
+              onClick={() => setOrthogonalConstraint((current) => !current)}
+            >
+              ORTHO
+            </button>
+            {drawingVertices ? (
+              <>
+                <button type="button" onClick={finishContour}>
+                  {messages.finishContour}
+                </button>
+                <button type="button" onClick={cancelDrawing}>
+                  {messages.cancelDrawing}
+                </button>
+              </>
+            ) : null}
           </div>
           {mode === "2d" ? (
             <>
@@ -1026,7 +1567,23 @@ export function CadWorkspace({
                   const end = vertices[(index + 1) % vertices.length]!;
                   const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
                   return (
-                    <g key={`dimension-${index}`} pointerEvents="none">
+                    <g
+                      key={`dimension-${index}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${messages.wallSelected} ${index + 1}`}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        setSelectedMarkerIds([]);
+                        setSelectedWallIndex(index);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        setSelectedMarkerIds([]);
+                        setSelectedWallIndex(index);
+                      }}
+                    >
                       <rect
                         x={midpoint.x - 210}
                         y={midpoint.y - 85}
@@ -1062,6 +1619,7 @@ export function CadWorkspace({
                             : [...current, marker.id]
                           : [marker.id],
                       );
+                      setSelectedWallIndex(null);
                       setActiveMarker(marker.id);
                       event.currentTarget.setPointerCapture(event.pointerId);
                     }}
@@ -1073,6 +1631,16 @@ export function CadWorkspace({
                     />
                   </g>
                 ))}
+                {drawingVertices?.length ? (
+                  <polyline
+                    points={drawingVertices.map((point) => `${point.x},${point.y}`).join(" ")}
+                    fill="rgba(244,172,61,.08)"
+                    stroke="#f4ac3d"
+                    strokeWidth="55"
+                    strokeDasharray="120 65"
+                    pointerEvents="none"
+                  />
+                ) : null}
                 {selectionBox ? (
                   <rect
                     x={Math.min(selectionBox.start.x, selectionBox.current.x)}
@@ -1099,6 +1667,7 @@ export function CadWorkspace({
                       onPointerDown={(event) => {
                         event.stopPropagation();
                         setSelectedMarkerIds([]);
+                        setSelectedWallIndex(null);
                         setActiveVertex(index);
                         event.currentTarget.setPointerCapture(event.pointerId);
                       }}
@@ -1107,11 +1676,58 @@ export function CadWorkspace({
               </svg>
             </>
           ) : (
-            <Plan3D vertices={vertices} height={height} markers={markers} label={messages.mode3d} />
+            <Plan3D
+              vertices={vertices}
+              height={height}
+              markers={markers}
+              markerLabels={toolLabels}
+              label={messages.mode3d}
+              selectedMarkerIds={selectedMarkerIds}
+              onSelectMarker={(markerId) => {
+                setSelectedMarkerIds([markerId]);
+                setSelectedWallIndex(null);
+              }}
+              onStartMarkerMove={checkpoint}
+              onMoveMarker={(markerId, offsetMm, elevationMm) => {
+                setMarkers((current) =>
+                  current.map((marker) =>
+                    marker.id === markerId
+                      ? {
+                          ...positionHostedMarker(marker, vertices, offsetMm),
+                          elevationMm: Math.round(elevationMm),
+                        }
+                      : marker,
+                  ),
+                );
+              }}
+              viewLabels={{
+                top: messages.viewTop,
+                front: messages.viewFront,
+                right: messages.viewRight,
+                elevation: messages.viewElevation,
+                iso: messages.viewIso,
+                perspective: messages.viewPerspective,
+                walk: messages.viewWalk,
+                fit: messages.fit3d,
+                orbitHelp: messages.orbitHelp,
+                walkHelp: messages.walkHelp,
+                previousWall: messages.previousWall,
+                nextWall: messages.nextWall,
+                moveForward: messages.moveForward,
+                moveBackward: messages.moveBackward,
+                turnLeft: messages.turnLeft,
+                turnRight: messages.turnRight,
+              }}
+            />
           )}
         </div>
 
         <aside className="cad-inspector">
+          {drawingError ? (
+            <p className="cad-drawing-error" role="alert">
+              {drawingError}
+            </p>
+          ) : null}
           {selectedMarkerIds.length > 1 ? (
             <div className="cad-inspector-section">
               <span className="status-chip">{messages.selectedComponents}</span>
@@ -1242,6 +1858,40 @@ export function CadWorkspace({
               >
                 {messages.deleteComponent}
               </button>
+            </div>
+          ) : selectedWallIndex !== null ? (
+            <div className="cad-inspector-section">
+              <span className="status-chip">{messages.wallSelected}</span>
+              <div className="cad-selected-heading">
+                <strong>W{selectedWallIndex + 1}</strong>
+              </div>
+              <label>
+                {messages.wallLengthMm}
+                <input
+                  aria-label={messages.wallLengthMm}
+                  type="number"
+                  inputMode="numeric"
+                  min="100"
+                  max="100000"
+                  step="10"
+                  value={edgeLength(
+                    vertices[selectedWallIndex]!,
+                    vertices[(selectedWallIndex + 1) % vertices.length]!,
+                  )}
+                  onFocus={checkpoint}
+                  onChange={(event) => {
+                    const nextVertices = resizeWall(
+                      vertices,
+                      selectedWallIndex,
+                      Number(event.target.value),
+                    );
+                    setVertices(nextVertices);
+                    setMarkers((current) =>
+                      reprojectHostedMarkers(current, vertices, nextVertices),
+                    );
+                  }}
+                />
+              </label>
             </div>
           ) : (
             <div className="cad-inspector-section">

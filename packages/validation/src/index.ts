@@ -43,19 +43,76 @@ export const createMeasurementSchema = z.object({
 export const surfaceWorkScopeSchema = z.object({
   surfaceId: uuidSchema,
   existingFinish: z.enum([
-    "paint", "tile", "plaster", "drywall", "concrete", "wood", "unknown", "other",
+    "paint",
+    "tile",
+    "plaster",
+    "drywall",
+    "concrete",
+    "wood",
+    "unknown",
+    "other",
   ]),
   condition: z.enum(["good", "minor_damage", "damaged", "damp", "unknown"]),
   waterExposure: z.enum(["dry", "occasional", "wet"]),
   removeExisting: z.boolean(),
   desiredWorks: z
-    .array(z.enum([
-      "paint", "tile", "plaster", "wallpaper", "repair",
-      "waterproof", "replace", "leave_as_is", "other",
-    ]))
+    .array(
+      z.enum([
+        "paint",
+        "tile",
+        "plaster",
+        "wallpaper",
+        "repair",
+        "waterproof",
+        "replace",
+        "leave_as_is",
+        "other",
+      ]),
+    )
     .min(1)
     .max(9),
   notes: z.string().trim().max(1000).optional(),
+});
+const point2MmSchema = z.object({
+  x: z.number().int().min(-1_000_000).max(1_000_000),
+  y: z.number().int().min(-1_000_000).max(1_000_000),
+});
+export const cadSpacePlanSchema = z.object({
+  projectId: uuidSchema,
+  name: z.string().trim().min(1).max(120),
+  kind: z.enum([
+    "bathroom",
+    "kitchen",
+    "bedroom",
+    "living_room",
+    "hallway",
+    "utility",
+    "exterior",
+    "other",
+  ]),
+  vertices: z.array(point2MmSchema).min(3).max(1000),
+  clearHeightMm: z.number().int().min(100).max(20_000),
+  components: z
+    .array(
+      z.object({
+        kind: z.enum([
+          "door",
+          "window",
+          "light",
+          "switch",
+          "socket",
+          "cold_water",
+          "hot_water",
+          "drain",
+        ]),
+        point: point2MmSchema,
+        wallIndex: z.number().int().min(0).max(999),
+        widthMm: z.number().int().min(20).max(20_000).optional(),
+        heightMm: z.number().int().min(20).max(20_000).optional(),
+        elevationMm: z.number().int().min(0).max(20_000).optional(),
+      }),
+    )
+    .max(1000),
 });
 export const publicWebEnvironmentSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.url(),

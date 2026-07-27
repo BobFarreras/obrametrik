@@ -124,6 +124,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@obrametrik/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@obrametrik/database':
+        specifier: workspace:*
+        version: link:../../packages/database
       '@obrametrik/domain':
         specifier: workspace:*
         version: link:../../packages/domain
@@ -195,6 +201,22 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.33.0)(terser@5.49.0)(yaml@2.9.0)
 
+  packages/application:
+    dependencies:
+      '@obrametrik/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      '@obrametrik/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.33.0)(terser@5.49.0)(yaml@2.9.0)
+
   packages/calculations:
     devDependencies:
       typescript:
@@ -207,10 +229,20 @@ importers:
   packages/config-typescript: {}
 
   packages/database:
-    devDependencies:
+    dependencies:
+      '@obrametrik/application':
+        specifier: workspace:*
+        version: link:../application
       '@obrametrik/domain':
         specifier: workspace:*
         version: link:../domain
+      '@supabase/supabase-js':
+        specifier: ^2.110.8
+        version: 2.110.8
+    devDependencies:
+      '@obrametrik/config-typescript':
+        specifier: workspace:*
+        version: link:../config-typescript
       typescript:
         specifier: ^5.9.2
         version: 5.9.3

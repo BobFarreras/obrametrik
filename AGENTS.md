@@ -26,6 +26,11 @@ commit, push o deploy sense autorització. Una funcionalitat requereix validaci�
 autorització, errors segurs, tests, traduccions, accessibilitat, documentació i
 ha de superar lint, typecheck, tests i build.
 
+Cada increment segueix SDD i TDD: especificació observable, test que falla per
+la raó esperada, implementació mínima, refactorització i validació. Aplica SOLID:
+domini independent, casos d'ús darrere de ports petits i infraestructura com a
+adaptador substituïble. Consulta `docs/adr/0010-sdd-tdd-solid-delivery.md`.
+
 ## Comentaris
 
 Comenta intenció, regles de negoci, decisions, riscos, limitacions i supòsits no

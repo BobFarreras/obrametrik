@@ -12,6 +12,8 @@
     "clean": "rimraf .next"
   },
   "dependencies": {
+    "@obrametrik/application": "workspace:*",
+    "@obrametrik/database": "workspace:*",
     "@obrametrik/domain": "workspace:*",
     "@obrametrik/i18n": "workspace:*",
     "@obrametrik/validation": "workspace:*",

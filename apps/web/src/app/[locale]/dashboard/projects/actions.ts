@@ -28,7 +28,7 @@ export async function createProject(formData: FormData) {
     organization_id: parsed.data.organizationId,
     created_by: auth.user.id,
     name: parsed.data.name,
-    description: parsed.data.description,
+    description: parsed.data.description ?? null,
   });
   revalidatePath(`/${locale}/dashboard/projects`);
   revalidatePath(`/${locale}/dashboard`);

@@ -427,7 +427,7 @@ label { display: grid; gap: 8px; margin-block: 18px; color: #3d3d42; font-size: 
 .cad-object-list small { color: #687d7f; font-size: .65rem; }
 .cad-selected-heading { align-items: center; display: flex; gap: 10px; margin: 16px 0; }
 .cad-selected-heading svg { background: #fff3d9; border-radius: 12px; height: 42px; padding: 8px; width: 42px; }
-.cad-selection-actions { display: grid; gap: 6px; grid-template-columns: repeat(3, 1fr); }
+.cad-selection-actions { display: grid; gap: 6px; grid-template-columns: repeat(2, 1fr); }
 .cad-selection-actions button {
   background: #edf3f1;
   border: 0;

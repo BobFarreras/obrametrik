@@ -49,6 +49,11 @@ vista 3D generada del mateix model.
   seva pròpia paret i continuen respectant els límits de les obertures.
 - Arrossegar una selecció múltiple aplica el mateix desplaçament longitudinal a
   cada component sobre la seva paret amfitriona.
+- Cada component exposa la seva posició longitudinal des de l'inici de la paret
+  en mil·límetres i permet editar-la numèricament.
+- `Shift+arrossegar` sobre el llenç crea un marc de selecció acumulatiu.
+- Tres o més components seleccionats es poden distribuir uniformement per cada
+  paret amfitriona, sense barrejar elements de parets diferents.
 - L'inspector permet editar dimensions i alçada del component seleccionat.
 - Les mutacions del document creen punts d'historial coherents. Desfer i refer
   restauren geometria, propietats i components com una sola operació.

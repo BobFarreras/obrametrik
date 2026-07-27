@@ -196,6 +196,8 @@
   "copyComponents": "Copiar",
   "pasteComponents": "Pegar",
   "duplicateComponents": "Duplicar",
+  "distributeComponents": "Distribuir",
+  "componentPositionMm": "Posición en la pared",
   "millimetresUnit": "mm",
   "legacyMeasurements": "Ver mediciones antiguas"
 }

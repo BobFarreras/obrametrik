@@ -11,13 +11,21 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { saveCadSpace } from "../app/[locale]/dashboard/projects/[projectId]/actions";
-import { offsetHostedMarkers, reprojectHostedMarkers } from "./cad-wall-geometry";
+import {
+  distributeHostedMarkers,
+  hostedMarkerIdsInBox,
+  hostedMarkerOffsetMm,
+  offsetHostedMarkers,
+  positionHostedMarker,
+  reprojectHostedMarkers,
+} from "./cad-wall-geometry";
 
 type ComponentKind =
   "door" | "window" | "light" | "switch" | "socket" | "cold_water" | "hot_water" | "drain";
 type Tool = "select" | ComponentKind;
 type Template = "rectangle" | "l_shape" | "u_shape";
 type ViewBox = { x: number; y: number; width: number; height: number };
+type SelectionBox = { start: Point2Mm; current: Point2Mm };
 type Marker = {
   id: string;
   kind: ComponentKind;
@@ -64,6 +72,7 @@ type CadMessages = {
   componentWidthMm: string;
   componentHeightMm: string;
   componentElevationMm: string;
+  componentPositionMm: string;
   deleteComponent: string;
   selectedComponent: string;
   selectedComponents: string;
@@ -88,6 +97,7 @@ type CadMessages = {
   copyComponents: string;
   pasteComponents: string;
   duplicateComponents: string;
+  distributeComponents: string;
   millimetresUnit: string;
   bathroom: string;
   kitchen: string;
@@ -457,6 +467,7 @@ export function CadWorkspace({
   }>({ past: [], future: [] });
   const componentClipboardRef = useRef<readonly Marker[]>([]);
   const [hasComponentClipboard, setHasComponentClipboard] = useState(false);
+  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const panStart = useRef<{ x: number; y: number; viewBox: ViewBox } | null>(null);
   const dragCheckpointRef = useRef(false);
   const area = useMemo(() => polygonArea(vertices), [vertices]);
@@ -561,6 +572,15 @@ export function CadWorkspace({
 
   function pasteComponents() {
     insertComponentCopies(componentClipboardRef.current);
+  }
+
+  function distributeSelectedComponents() {
+    const selectedMarkers = markers.filter((marker) => selectedMarkerIds.includes(marker.id));
+    if (selectedMarkers.length < 3) return;
+    checkpoint();
+    const distributed = distributeHostedMarkers(selectedMarkers, vertices);
+    const byId = new Map(distributed.map((marker) => [marker.id, marker]));
+    setMarkers((current) => current.map((marker) => byId.get(marker.id) ?? marker));
   }
 
   async function persistPlan(spaceId: string | null) {
@@ -735,12 +755,22 @@ export function CadWorkspace({
       setTool("select");
       return;
     }
+    if (event.shiftKey) {
+      const point = svgPoint(event);
+      setSelectionBox({ start: point, current: point });
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
     setSelectedMarkerIds([]);
     panStart.current = { x: event.clientX, y: event.clientY, viewBox };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function handlePointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    if (selectionBox) {
+      setSelectionBox((current) => (current ? { ...current, current: svgPoint(event) } : null));
+      return;
+    }
     if (activeVertex !== null) {
       if (!dragCheckpointRef.current) {
         checkpoint();
@@ -811,6 +841,15 @@ export function CadWorkspace({
   }
 
   function finishPointerInteraction() {
+    if (selectionBox) {
+      const boxedIds = hostedMarkerIdsInBox(
+        markers,
+        selectionBox.start,
+        selectionBox.current,
+      );
+      setSelectedMarkerIds((current) => [...new Set([...current, ...boxedIds])]);
+      setSelectionBox(null);
+    }
     setActiveVertex(null);
     setActiveMarker(null);
     dragCheckpointRef.current = false;
@@ -1034,6 +1073,19 @@ export function CadWorkspace({
                     />
                   </g>
                 ))}
+                {selectionBox ? (
+                  <rect
+                    x={Math.min(selectionBox.start.x, selectionBox.current.x)}
+                    y={Math.min(selectionBox.start.y, selectionBox.current.y)}
+                    width={Math.abs(selectionBox.current.x - selectionBox.start.x)}
+                    height={Math.abs(selectionBox.current.y - selectionBox.start.y)}
+                    fill="rgba(244,172,61,.16)"
+                    stroke="#f4ac3d"
+                    strokeWidth="24"
+                    strokeDasharray="90 50"
+                    pointerEvents="none"
+                  />
+                ) : null}
                 {tool === "select" &&
                   vertices.map((point, index) => (
                     <circle
@@ -1076,6 +1128,9 @@ export function CadWorkspace({
                 </button>
                 <button type="button" onClick={pasteComponents} disabled={!hasComponentClipboard}>
                   {messages.pasteComponents}
+                </button>
+                <button type="button" onClick={distributeSelectedComponents}>
+                  {messages.distributeComponents}
                 </button>
               </div>
               <button
@@ -1152,6 +1207,28 @@ export function CadWorkspace({
                   value={selected.elevationMm}
                   onFocus={checkpoint}
                   onChange={(event) => updateSelected({ elevationMm: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                {messages.componentPositionMm}
+                <input
+                  aria-label={messages.componentPositionMm}
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  step="10"
+                  value={hostedMarkerOffsetMm(selected, vertices)}
+                  onFocus={checkpoint}
+                  onChange={(event) => {
+                    const positioned = positionHostedMarker(
+                      selected,
+                      vertices,
+                      Number(event.target.value),
+                    );
+                    setMarkers((current) =>
+                      current.map((marker) => (marker.id === selected.id ? positioned : marker)),
+                    );
+                  }}
                 />
               </label>
               <button

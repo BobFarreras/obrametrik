@@ -196,6 +196,8 @@
   "copyComponents": "Copy",
   "pasteComponents": "Paste",
   "duplicateComponents": "Duplicate",
+  "distributeComponents": "Distribute",
+  "componentPositionMm": "Position on wall",
   "millimetresUnit": "mm",
   "legacyMeasurements": "View legacy measurements"
 }

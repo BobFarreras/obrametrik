@@ -59,6 +59,8 @@ const messages = {
   copyComponents: "Copiar",
   pasteComponents: "Pegar",
   duplicateComponents: "Duplicar",
+  distributeComponents: "Distribuir",
+  componentPositionMm: "Posición en la pared",
   millimetresUnit: "mm",
   bathroom: "Baño",
   kitchen: "Cocina",
@@ -277,6 +279,11 @@ describe("CadWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Baño/ }));
     fireEvent.click(screen.getAllByRole("button", { name: "Enchufe" }).at(-1)!);
     expect(screen.getByLabelText("Anchura")).toBeTruthy();
+    expect((screen.getByLabelText("Posición en la pared") as HTMLInputElement).value).toBe("1800");
+    fireEvent.change(screen.getByLabelText("Posición en la pared"), {
+      target: { value: "2100" },
+    });
+    expect((screen.getByLabelText("Posición en la pared") as HTMLInputElement).value).toBe("2100");
     expect(screen.getByRole("button", { name: "Eliminar componente" })).toBeTruthy();
 
     const socketButtons = screen.getAllByRole("button", { name: "Enchufe" }).slice(-2);

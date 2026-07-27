@@ -206,7 +206,8 @@ describe("CadWorkspace", () => {
       "true",
     );
     expect(screen.getByRole("button", { name: "Lateral" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Perspectiva" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Perspectiva" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Recorrido" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Alzado de pared" }));
     expect(screen.getByRole("button", { name: "Pared anterior" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Pared siguiente" })).toBeTruthy();

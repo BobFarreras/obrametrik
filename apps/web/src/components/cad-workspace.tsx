@@ -11,7 +11,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { saveCadSpace } from "../app/[locale]/dashboard/projects/[projectId]/actions";
-import { findInteriorPoint, moveWalkCamera, wallOpeningCorners } from "./cad-camera";
+import { doorLeafCorners, findInteriorPoint, moveWalkCamera, wallOpeningCorners } from "./cad-camera";
 import { isSimplePolygon, moveVertex, resizeWall } from "./cad-polygon-geometry";
 import {
   distributeHostedMarkers,
@@ -403,7 +403,6 @@ type TechnicalView =
   | "right"
   | "elevation"
   | "iso"
-  | "perspective"
   | "walk";
 
 const technicalViewCamera: Record<TechnicalView, { yaw: number; pitch: number }> = {
@@ -412,9 +411,18 @@ const technicalViewCamera: Record<TechnicalView, { yaw: number; pitch: number }>
   right: { yaw: 90, pitch: 90 },
   elevation: { yaw: 0, pitch: 90 },
   iso: { yaw: -42, pitch: 55 },
-  perspective: { yaw: -35, pitch: 48 },
   walk: { yaw: 0, pitch: 0 },
 };
+
+function ViewIcon({ view }: { view: TechnicalView }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8 } as const;
+  if (view === "top") return <><rect {...common} x="4" y="5" width="16" height="14" /><path {...common} d="M8 9h8v6H8z" /></>;
+  if (view === "front") return <><path {...common} d="M4 20V5h16v15" /><path {...common} d="M9 20v-8h6v8" /></>;
+  if (view === "right") return <><path {...common} d="M5 20V6h14v14" /><path {...common} d="m12 3 4 3-4 3" /></>;
+  if (view === "elevation") return <><path {...common} d="M4 20V5h16v15M8 20v-8h7v8" /><path {...common} d="M2 5h20" /></>;
+  if (view === "walk") return <><circle {...common} cx="12" cy="6" r="2.5" /><path {...common} d="m12 9-3 5 3 2 3-5M9 14l-2 6M12 16l3 4" /></>;
+  return <><path {...common} d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z" /><path {...common} d="m4 7.5 8 4.5 8-4.5M12 12v9" /></>;
+}
 
 function Plan3D({
   vertices,
@@ -471,6 +479,9 @@ function Plan3D({
     z: height / 2,
   };
   const [walkPosition, setWalkPosition] = useState(() => findInteriorPoint(vertices));
+  const walkKeys = useRef(new Set<string>());
+  const walkYaw = useRef(yaw);
+  const walkViewport = useRef<SVGSVGElement | null>(null);
   const extent = Math.max(bounds.width, bounds.height, height, 1);
   const scale = (520 / extent) * zoom;
   const yawRadians = (yaw * Math.PI) / 180;
@@ -504,11 +515,9 @@ function Plan3D({
     const rotatedY = dx * Math.sin(yawRadians) + dy * Math.cos(yawRadians);
     const vertical = rotatedY * Math.cos(pitchRadians) - dz * Math.sin(pitchRadians);
     const depth = rotatedY * Math.sin(pitchRadians) + dz * Math.cos(pitchRadians);
-    const perspective =
-      view === "perspective" ? Math.max(0.45, Math.min(1.8, 9000 / (9000 + depth))) : 1;
     return {
-      x: 500 + pan.x + rotatedX * scale * perspective,
-      y: 350 + pan.y + vertical * scale * perspective,
+      x: 500 + pan.x + rotatedX * scale,
+      y: 350 + pan.y + vertical * scale,
       depth,
       visible: true,
     };
@@ -528,8 +537,15 @@ function Plan3D({
   }
 
   useEffect(() => {
+    walkYaw.current = yaw;
+  }, [yaw]);
+
+  useEffect(() => {
     if (view !== "walk") return;
-    function handleWalkKeys(event: KeyboardEvent) {
+    const activeKeys = walkKeys.current;
+    let frame = 0;
+    let previousTime = performance.now();
+    function handleWalkKeyDown(event: KeyboardEvent) {
       const target = event.target;
       if (
         target instanceof HTMLInputElement ||
@@ -539,29 +555,49 @@ function Plan3D({
         return;
       }
       const key = event.key.toLowerCase();
-      if (key === "arrowleft") {
+      if (["arrowleft", "arrowright", "arrowup", "arrowdown", "w", "a", "s", "d"].includes(key)) {
         event.preventDefault();
-        setYaw((current) => current - 6);
-      } else if (key === "arrowright") {
-        event.preventDefault();
-        setYaw((current) => current + 6);
-      } else if (key === "arrowup" || key === "w") {
-        event.preventDefault();
-        setWalkPosition((current) => moveWalkCamera(current, yaw, 200, 0, vertices));
-      } else if (key === "arrowdown" || key === "s") {
-        event.preventDefault();
-        setWalkPosition((current) => moveWalkCamera(current, yaw, -200, 0, vertices));
-      } else if (key === "a") {
-        event.preventDefault();
-        setWalkPosition((current) => moveWalkCamera(current, yaw, 0, -200, vertices));
-      } else if (key === "d") {
-        event.preventDefault();
-        setWalkPosition((current) => moveWalkCamera(current, yaw, 0, 200, vertices));
+        activeKeys.add(key);
       }
     }
-    window.addEventListener("keydown", handleWalkKeys);
-    return () => window.removeEventListener("keydown", handleWalkKeys);
-  }, [view, vertices, yaw]);
+    function handleWalkKeyUp(event: KeyboardEvent) {
+      activeKeys.delete(event.key.toLowerCase());
+    }
+    function handleMouseLook(event: MouseEvent) {
+      if (document.pointerLockElement !== walkViewport.current) return;
+      setYaw((current) => current + event.movementX * 0.12);
+      setPitch((current) => Math.max(-55, Math.min(55, current - event.movementY * 0.1)));
+    }
+    function tick(time: number) {
+      const seconds = Math.min((time - previousTime) / 1000, 0.05);
+      previousTime = time;
+      const keys = activeKeys;
+      const turn = (keys.has("arrowright") ? 1 : 0) - (keys.has("arrowleft") ? 1 : 0);
+      if (turn) setYaw((current) => current + turn * 95 * seconds);
+      const forward =
+        (keys.has("w") || keys.has("arrowup") ? 1 : 0) -
+        (keys.has("s") || keys.has("arrowdown") ? 1 : 0);
+      const strafe = (keys.has("d") ? 1 : 0) - (keys.has("a") ? 1 : 0);
+      if (forward || strafe) {
+        const distance = 1800 * seconds;
+        setWalkPosition((current) =>
+          moveWalkCamera(current, walkYaw.current, forward * distance, strafe * distance, vertices),
+        );
+      }
+      frame = requestAnimationFrame(tick);
+    }
+    window.addEventListener("keydown", handleWalkKeyDown);
+    window.addEventListener("keyup", handleWalkKeyUp);
+    document.addEventListener("mousemove", handleMouseLook);
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      activeKeys.clear();
+      window.removeEventListener("keydown", handleWalkKeyDown);
+      window.removeEventListener("keyup", handleWalkKeyUp);
+      document.removeEventListener("mousemove", handleMouseLook);
+    };
+  }, [view, vertices]);
 
   function startCameraDrag(event: ReactPointerEvent<SVGSVGElement>) {
     cameraDrag.current = {
@@ -634,7 +670,23 @@ function Plan3D({
         marker.heightMm,
       );
       const projected = corners.map((corner) => project(corner, corner.z));
-      return [{ marker, projected, depth: projected.reduce((sum, point) => sum + point.depth, 0) / 4 }];
+      const doorLeaf =
+        marker.kind === "door"
+          ? doorLeafCorners(
+              marker.point,
+              wallStart,
+              wallEnd,
+              marker.widthMm,
+              marker.heightMm,
+              vertices,
+            ).map((corner) => project(corner, corner.z))
+          : [];
+      return [{
+        marker,
+        projected,
+        doorLeaf,
+        depth: projected.reduce((sum, point) => sum + point.depth, 0) / 4,
+      }];
     })
     .sort((a, b) => a.depth - b.depth);
   const elevationStart = vertices[elevationWallIndex] ?? vertices[0]!;
@@ -660,7 +712,10 @@ function Plan3D({
             aria-pressed={view === preset}
             onClick={() => selectView(preset)}
           >
-            {viewLabels[preset]}
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <ViewIcon view={preset} />
+            </svg>
+            <span>{viewLabels[preset]}</span>
           </button>
         ))}
         {view === "elevation" ? (
@@ -701,10 +756,16 @@ function Plan3D({
         </div>
       ) : null}
       <svg
+        ref={walkViewport}
         className="cad-3d"
         viewBox="0 0 1000 700"
         role="img"
         aria-label={label}
+        onDoubleClick={(event) => {
+          if (view === "walk" && document.pointerLockElement !== event.currentTarget) {
+            void event.currentTarget.requestPointerLock?.();
+          }
+        }}
         onPointerDown={startCameraDrag}
         onPointerMove={moveCamera}
         onPointerUp={() => {
@@ -822,7 +883,7 @@ function Plan3D({
               ))}
             {openingFaces
               .filter(({ projected }) => projected.every((point) => point.visible))
-              .map(({ marker, projected }) => (
+              .map(({ marker, projected, doorLeaf }) => (
                 <g
                   key={`opening-${marker.id}`}
                   role="button"
@@ -842,6 +903,14 @@ function Plan3D({
                     stroke="#1c3133"
                     strokeWidth="5"
                   />
+                  {marker.kind === "door" && doorLeaf.every((point) => point.visible) ? (
+                    <polygon
+                      points={points(doorLeaf)}
+                      fill="rgba(184,132,76,.7)"
+                      stroke="#573a20"
+                      strokeWidth="5"
+                    />
+                  ) : null}
                   {marker.kind === "window" ? (
                     <line
                       x1={(projected[0]!.x + projected[3]!.x) / 2}
@@ -1706,7 +1775,6 @@ export function CadWorkspace({
                 right: messages.viewRight,
                 elevation: messages.viewElevation,
                 iso: messages.viewIso,
-                perspective: messages.viewPerspective,
                 walk: messages.viewWalk,
                 fit: messages.fit3d,
                 orbitHelp: messages.orbitHelp,

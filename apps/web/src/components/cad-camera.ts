@@ -27,7 +27,11 @@ export function moveWalkCamera(
     x: Math.round(position.x + Math.cos(yaw) * forwardMm - Math.sin(yaw) * strafeMm),
     y: Math.round(position.y + Math.sin(yaw) * forwardMm + Math.cos(yaw) * strafeMm),
   };
-  return isPointInsidePolygon(candidate, vertices) ? candidate : position;
+  if (isPointInsidePolygon(candidate, vertices)) return candidate;
+  const slideX = { x: candidate.x, y: position.y };
+  if (isPointInsidePolygon(slideX, vertices)) return slideX;
+  const slideY = { x: position.x, y: candidate.y };
+  return isPointInsidePolygon(slideY, vertices) ? slideY : position;
 }
 
 export function findInteriorPoint(vertices: readonly Point2Mm[]): Point2Mm {
@@ -74,5 +78,32 @@ export function wallOpeningCorners(
     { x: point.x + unitX * half, y: point.y + unitY * half, z: elevationMm },
     { x: point.x + unitX * half, y: point.y + unitY * half, z: elevationMm + heightMm },
     { x: point.x - unitX * half, y: point.y - unitY * half, z: elevationMm + heightMm },
+  ];
+}
+
+export function doorLeafCorners(
+  point: Point2Mm,
+  wallStart: Point2Mm,
+  wallEnd: Point2Mm,
+  widthMm: number,
+  heightMm: number,
+  roomVertices: readonly Point2Mm[],
+): readonly { x: number; y: number; z: number }[] {
+  const length = Math.hypot(wallEnd.x - wallStart.x, wallEnd.y - wallStart.y);
+  if (length === 0) return [];
+  const unitX = (wallEnd.x - wallStart.x) / length;
+  const unitY = (wallEnd.y - wallStart.y) / length;
+  const hinge = {
+    x: point.x - unitX * widthMm / 2,
+    y: point.y - unitY * widthMm / 2,
+  };
+  const candidateA = { x: hinge.x - unitY * widthMm, y: hinge.y + unitX * widthMm };
+  const candidateB = { x: hinge.x + unitY * widthMm, y: hinge.y - unitX * widthMm };
+  const openEnd = isPointInsidePolygon(candidateA, roomVertices) ? candidateA : candidateB;
+  return [
+    { ...hinge, z: 0 },
+    { ...openEnd, z: 0 },
+    { ...openEnd, z: heightMm },
+    { ...hinge, z: heightMm },
   ];
 }

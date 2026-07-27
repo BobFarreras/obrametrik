@@ -86,17 +86,20 @@ vista 3D generada del mateix model.
 - 3D és una ajuda de comprensió, no un render fotorealista.
 - El viewport calcula el centre i l'escala a partir del volum complet; cap forma
   depèn d'un canvas fix ni queda descentrada per l'origen de coordenades.
-- Presets sincronitzats: planta superior, frontal, lateral, isomètrica i
-  perspectiva.
-- Isomètrica i perspectiva permeten òrbita, zoom, pan i reenquadrament. Les
+- Una barra tècnica compacta i amb icones agrupa planta superior, frontal,
+  lateral, alçat, isomètrica i primera persona; no exposa projeccions ambigües.
+- Isomètrica permet òrbita, zoom, pan i reenquadrament. Les
   vistes ortogràfiques mantenen escala tècnica sense deformació de perspectiva.
 - Els components es poden seleccionar en qualsevol projecció. L'alçat mostra
   explícitament la seva cota vertical en `mm` i reutilitza el mateix inspector.
 - L'alçat navega paret a paret, representa portes i finestres a mida real i
   permet arrossegar punts en horizontal i vertical mantenint el seu host.
-- El mode recorregut situa la càmera a altura ocular en un punt realment
-  interior, permet mirada amb arrossegament i moviment amb fletxes, WASD o
-  controls visibles. La càmera no pot travessar el contorn de l'espai.
+- El mode primera persona situa la càmera a altura ocular en un punt realment
+  interior, manté moviment continu amb WASD, gir amb fletxes, mirada lliure amb
+  pointer lock i controls visibles. La càmera col·lideix amb el contorn i llisca
+  al llarg de les parets en moviments diagonals.
+- Les portes mostren el buit i una fulla oberta cap a l'interior tant per
+  entendre el pas disponible com el sentit d'obertura previst.
 
 ## Persistència
 

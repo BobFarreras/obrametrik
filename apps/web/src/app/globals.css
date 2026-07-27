@@ -403,28 +403,40 @@ label { display: grid; gap: 8px; margin-block: 18px; color: #3d3d42; font-size: 
 .cad-3d { background: radial-gradient(circle at 50% 40%, #fff 0, #e8eeea 70%); }
 .cad-technical-viewport { height: 100%; min-height: 0; position: relative; width: 100%; }
 .cad-view-presets {
+  background: rgba(28,49,51,.94);
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(28,49,51,.18);
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 3px;
   left: 50%;
   max-width: calc(100% - 32px);
+  padding: 5px;
   position: absolute;
   top: 14px;
   transform: translateX(-50%);
   z-index: 4;
 }
 .cad-view-presets button {
-  background: rgba(255,255,255,.92);
-  border: 1px solid #cbd8d4;
-  border-radius: 999px;
-  color: #2a4b4f;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  color: rgba(255,255,255,.76);
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
   font: inherit;
   font-size: .72rem;
   font-weight: 800;
-  min-height: 40px;
-  padding: 6px 12px;
+  min-height: 48px;
+  min-width: 58px;
+  padding: 5px 8px;
 }
-.cad-view-presets button.is-active { background: #2a4b4f; color: #fff; }
+.cad-view-presets button svg { height: 20px; width: 20px; }
+.cad-view-presets button.is-active { background: #f4ac3d; color: #1c3133; }
+.cad-view-presets button:hover:not(.is-active) { background: rgba(255,255,255,.1); color: #fff; }
 .cad-camera-help {
   background: rgba(28,49,51,.82);
   border-radius: 999px;

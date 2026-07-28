@@ -2,6 +2,8 @@
  * @file packages/calculations/src/index.ts
  * @description Calculates auditable purchase quantities without AI.
  */
+export * from "./electrical-takeoff";
+
 export type MeasurementUnit = "m" | "m2" | "m3" | "kg" | "unit";
 export type CalculationResult = {
   netQuantity: number;

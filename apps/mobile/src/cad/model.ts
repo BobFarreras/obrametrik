@@ -1,4 +1,11 @@
-import type { CadComponentKind, CadPlanDraft } from "@obrametrik/application";
+import {
+  defaultCadComponentVariant,
+  isCadComponentVariant,
+  type CadComponentKind,
+  type CadComponentVariant,
+  type CadPlanDraft,
+  type DoorSwing,
+} from "@obrametrik/application";
 import type { BuildingElement, BuildingSpace, Point2Mm, SpaceKind } from "@obrametrik/domain";
 
 export type MobileCadMarker = {
@@ -9,6 +16,8 @@ export type MobileCadMarker = {
   widthMm: number;
   heightMm: number;
   elevationMm: number;
+  swing?: DoorSwing;
+  variant: CadComponentVariant;
 };
 
 export type MobileCadDocument = {
@@ -108,8 +117,53 @@ export function moveOrthogonalVertex(
   return result;
 }
 
+export function moveVertex(
+  vertices: readonly Point2Mm[],
+  vertexIndex: number,
+  point: Point2Mm,
+  orthogonal: boolean,
+): readonly Point2Mm[] {
+  if (orthogonal) return moveOrthogonalVertex(vertices, vertexIndex, point);
+  if (!vertices[vertexIndex]) return vertices;
+  return vertices.map((vertex, index) =>
+    index === vertexIndex ? { x: Math.round(point.x), y: Math.round(point.y) } : vertex,
+  );
+}
+
 export function edgeLengthMm(start: Point2Mm, end: Point2Mm): number {
   return Math.round(Math.hypot(end.x - start.x, end.y - start.y));
+}
+
+export function openingClearancesMm(
+  marker: MobileCadMarker,
+  vertices: readonly Point2Mm[],
+): { beforeMm: number; afterMm: number } {
+  const start = vertices[marker.wallIndex];
+  const end = vertices[(marker.wallIndex + 1) % vertices.length];
+  if (!start || !end) return { beforeMm: 0, afterMm: 0 };
+  const wallLength = edgeLengthMm(start, end);
+  if (!wallLength) return { beforeMm: 0, afterMm: 0 };
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const centerOffset = ((marker.point.x - start.x) * dx + (marker.point.y - start.y) * dy) / wallLength;
+  return {
+    beforeMm: Math.max(0, Math.round(centerOffset - marker.widthMm / 2)),
+    afterMm: Math.max(0, Math.round(wallLength - centerOffset - marker.widthMm / 2)),
+  };
+}
+
+export function moveWall(
+  vertices: readonly Point2Mm[],
+  wallIndex: number,
+  delta: Point2Mm,
+): readonly Point2Mm[] {
+  const endIndex = (wallIndex + 1) % vertices.length;
+  if (!vertices[wallIndex] || !vertices[endIndex]) return vertices;
+  return vertices.map((vertex, index) =>
+    index === wallIndex || index === endIndex
+      ? { x: Math.round(vertex.x + delta.x), y: Math.round(vertex.y + delta.y) }
+      : vertex,
+  );
 }
 
 export function resizeWall(
@@ -197,6 +251,19 @@ export function documentFromBuildingModel(
         widthMm: element.dimensionsMm.width,
         heightMm: element.dimensionsMm.height,
         elevationMm: element.transform.position.z,
+        variant: isCadComponentVariant(kind, element.specification.componentVariant)
+          ? element.specification.componentVariant
+          : defaultCadComponentVariant(kind),
+        swing:
+          kind === "door" &&
+          (element.specification.doorSwing === "left_in" ||
+            element.specification.doorSwing === "right_in" ||
+            element.specification.doorSwing === "left_out" ||
+            element.specification.doorSwing === "right_out")
+            ? element.specification.doorSwing
+            : kind === "door"
+              ? "left_in"
+              : undefined,
       }];
     });
   return {
@@ -226,8 +293,8 @@ export function toCadPlan(projectId: string, document: MobileCadDocument): CadPl
     kind: document.kind,
     vertices: document.vertices,
     clearHeightMm: document.clearHeightMm,
-    components: document.markers.map(({ kind, point, wallIndex, widthMm, heightMm, elevationMm }) => ({
-      kind, point, wallIndex, widthMm, heightMm, elevationMm,
+    components: document.markers.map(({ kind, point, wallIndex, widthMm, heightMm, elevationMm, swing, variant }) => ({
+      kind, point, wallIndex, widthMm, heightMm, elevationMm, swing, variant,
     })),
   };
 }

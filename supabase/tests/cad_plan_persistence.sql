@@ -1,5 +1,5 @@
 begin;
-select plan(7);
+select plan(9);
 
 select has_function(
   'public',
@@ -48,11 +48,33 @@ select set_config('request.jwt.claim.sub', '12121212-1212-4121-8121-121212121212
 select lives_ok(
   $$
     select * from public.save_cad_plan(
-      '{"projectId":"34343434-3434-4343-8343-343434343434","name":"Bany","kind":"bathroom","vertices":[{"x":0,"y":0},{"x":3000,"y":0},{"x":3000,"y":2000},{"x":0,"y":2000}],"clearHeightMm":2500,"components":[{"kind":"socket","point":{"x":1500,"y":0},"wallIndex":0}]}'::jsonb,
+      '{"projectId":"34343434-3434-4343-8343-343434343434","name":"Bany","kind":"bathroom","vertices":[{"x":0,"y":0},{"x":3000,"y":0},{"x":3000,"y":2000},{"x":0,"y":2000}],"clearHeightMm":2500,"components":[{"kind":"door","point":{"x":1500,"y":0},"wallIndex":0,"swing":"right_out","variant":"sliding"}]}'::jsonb,
       null
     )
   $$,
   'a project owner can create a complete CAD plan'
+);
+
+select is(
+  (
+    select specification->>'doorSwing'
+    from public.building_elements
+    where project_id = '34343434-3434-4343-8343-343434343434'
+      and kind = 'door'
+  ),
+  'right_out',
+  'door swing is validated and persisted with the shared CAD model'
+);
+
+select is(
+  (
+    select specification->>'componentVariant'
+    from public.building_elements
+    where project_id = '34343434-3434-4343-8343-343434343434'
+      and kind = 'door'
+  ),
+  'sliding',
+  'component variant is validated and persisted with the shared CAD model'
 );
 
 select lives_ok(

@@ -1,10 +1,16 @@
-import type { CadComponentKind } from "@obrametrik/application";
+import {
+  cadComponentVariants,
+  defaultCadComponentVariant,
+  type CadComponentKind,
+  type CadComponentVariant,
+} from "@obrametrik/application";
 import type { Point2Mm } from "@obrametrik/domain";
 import { messages } from "@obrametrik/i18n";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   PanResponder,
   Platform,
@@ -15,7 +21,6 @@ import {
   TextInput,
   View,
   useWindowDimensions,
-  type GestureResponderEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../../src/auth/auth-provider";
@@ -25,7 +30,9 @@ import {
   componentDefaults,
   documentForSpaceId,
   edgeLengthMm,
-  moveOrthogonalVertex,
+  moveVertex,
+  moveWall,
+  openingClearancesMm,
   reprojectHostedMarkers,
   resizeWall,
   toCadPlan,
@@ -33,6 +40,7 @@ import {
   type MobileCadMarker,
 } from "../../../src/cad/model";
 import { mobileBuildingModelRepository } from "../../../src/cad/repository";
+import { NativeCad3D } from "../../../src/cad/native-cad-3d";
 import { Button, Field } from "../../../src/components/ui";
 import { getDeviceLocale } from "../../../src/lib/i18n";
 import { theme } from "../../../src/theme";
@@ -41,6 +49,7 @@ type Shape = keyof typeof cadTemplates;
 type Mode = "2d" | "3d";
 type TechnicalView = "iso" | "top" | "front" | "right";
 type ActiveTool = "select" | CadComponentKind;
+type NumericEdit = { label: string; value: number; onCommit: (value: number) => void };
 const tools: readonly ActiveTool[] = [
   "select",
   "door", "window", "light", "switch", "socket", "cold_water", "hot_water", "drain",
@@ -81,6 +90,13 @@ export default function MobileCadScreen() {
   const [orbit, setOrbit] = useState({ yaw: -42, pitch: 24 });
   const [technicalView, setTechnicalView] = useState<TechnicalView>("iso");
   const [showDimensions, setShowDimensions] = useState(false);
+  const [orthogonal, setOrthogonal] = useState(true);
+  const [planPan, setPlanPan] = useState({ x: 0, y: 0 });
+  const [numericEdit, setNumericEdit] = useState<NumericEdit>();
+  const planGesture = useRef<
+    { distance?: number; localX: number; localY: number; pageX: number; pageY: number } | undefined
+  >(undefined);
+  const entityInteraction = useRef(false);
   const history = useRef<MobileCadDocument[]>([]);
   const future = useRef<MobileCadDocument[]>([]);
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
@@ -102,6 +118,31 @@ export default function MobileCadScreen() {
     cold_water: t.coldWaterTool,
     hot_water: t.hotWaterTool,
     drain: t.drainTool,
+  };
+  const variantLabels: Record<CadComponentVariant, string> = {
+    hinged: t.variantHinged,
+    sliding: t.variantSliding,
+    pocket: t.variantPocket,
+    folding: t.variantFolding,
+    double_hinged: t.variantDoubleHinged,
+    casement: t.variantCasement,
+    tilt_turn: t.variantTiltTurn,
+    fixed: t.variantFixed,
+    awning: t.variantAwning,
+    ceiling: t.variantCeiling,
+    wall: t.variantWall,
+    recessed: t.variantRecessed,
+    pendant: t.variantPendant,
+    single: t.variantSingle,
+    double: t.variantDouble,
+    dimmer: t.variantDimmer,
+    two_way: t.variantTwoWay,
+    usb: t.variantUsb,
+    wall_outlet: t.variantWallOutlet,
+    floor_outlet: t.variantFloorOutlet,
+    manifold: t.variantManifold,
+    floor: t.variantFloor,
+    linear: t.variantLinear,
   };
 
   const loadModel = useCallback(async () => {
@@ -144,9 +185,59 @@ export default function MobileCadScreen() {
   const selected = document.markers.find((marker) => marker.id === selectedId);
   const bounds = useMemo(() => modelBounds(document.vertices), [document.vertices]);
   const viewport = useMemo(
-    () => createViewport(bounds, stageLayout.width, stageLayout.height, zoom),
-    [bounds, stageLayout, zoom],
+    () => createViewport(bounds, stageLayout.width, stageLayout.height, zoom, planPan),
+    [bounds, planPan, stageLayout, zoom],
   );
+
+  function capturePlanTouches(event: {
+    nativeEvent: { touches: readonly { locationX: number; locationY: number; pageX: number; pageY: number }[] };
+  }) {
+    const [first, second] = event.nativeEvent.touches;
+    if (!first) return;
+    planGesture.current = second
+      ? {
+          distance: Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY),
+          localX: (first.locationX + second.locationX) / 2,
+          localY: (first.locationY + second.locationY) / 2,
+          pageX: (first.pageX + second.pageX) / 2,
+          pageY: (first.pageY + second.pageY) / 2,
+        }
+      : {
+          localX: first.locationX,
+          localY: first.locationY,
+          pageX: first.pageX,
+          pageY: first.pageY,
+        };
+  }
+
+  function movePlan(event: {
+    nativeEvent: { touches: readonly { locationX: number; locationY: number; pageX: number; pageY: number }[] };
+  }) {
+    const previous = planGesture.current;
+    const [first, second] = event.nativeEvent.touches;
+    if (!previous || !first) return capturePlanTouches(event);
+    if (second) {
+      const distance = Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY);
+      if (previous.distance) {
+        const ratio = distance / previous.distance;
+        const nextZoom = Math.max(0.55, Math.min(3.5, zoom * ratio));
+        const appliedRatio = nextZoom / zoom;
+        const localX = previous.localX - stageLayout.width / 2;
+        const localY = previous.localY - stageLayout.height / 2;
+        setPlanPan((current) => ({
+          x: current.x + (localX - current.x) * (1 - appliedRatio),
+          y: current.y + (localY - current.y) * (1 - appliedRatio),
+        }));
+        setZoom(nextZoom);
+      }
+    } else if (!entityInteraction.current) {
+      setPlanPan((current) => ({
+        x: current.x + first.pageX - previous.pageX,
+        y: current.y + first.pageY - previous.pageY,
+      }));
+    }
+    capturePlanTouches(event);
+  }
 
   function checkpoint() {
     history.current = [...history.current.slice(-39), document];
@@ -215,27 +306,35 @@ export default function MobileCadScreen() {
       setSelectedWall(undefined);
       return;
     }
+    placeMarkerAt(modelPoint);
+  }
+
+  function placeMarkerAt(modelPoint: Point2Mm) {
+    if (tool === "select") return;
     const hosted = closestWallPoint(document.vertices, modelPoint, componentDefaults[tool].widthMm);
     const marker: MobileCadMarker = {
       id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       kind: tool,
       ...hosted,
       ...componentDefaults[tool],
+      variant: defaultCadComponentVariant(tool),
+      ...(tool === "door" ? { swing: "left_in" as const } : {}),
     };
     updateDocument((current) => ({ ...current, markers: [...current.markers, marker] }));
     setSelectedId(marker.id);
     setSelectedVertex(undefined);
     setSelectedWall(undefined);
+    setTool("select");
   }
 
-  function updateSelected(patch: Partial<MobileCadMarker>) {
+  function updateSelected(patch: Partial<MobileCadMarker>, recordHistory = true) {
     if (!selectedId) return;
     updateDocument((current) => ({
       ...current,
       markers: current.markers.map((marker) =>
         marker.id === selectedId ? { ...marker, ...patch } : marker,
       ),
-    }));
+    }), recordHistory);
   }
 
   const save = useCallback(async () => {
@@ -271,7 +370,7 @@ export default function MobileCadScreen() {
   if (!user) return <Redirect href="/login" />;
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.screen}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.headerButton}>
           <Text style={styles.headerButtonText}>‹</Text>
@@ -364,6 +463,12 @@ export default function MobileCadScreen() {
             accessibilityHint={t.mobileCadTapHint}
             accessibilityLabel={t.mode2d}
             onPress={(event) => placeMarker(event.nativeEvent.locationX, event.nativeEvent.locationY)}
+            onTouchEnd={() => {
+              planGesture.current = undefined;
+              entityInteraction.current = false;
+            }}
+            onTouchMove={movePlan}
+            onTouchStart={capturePlanTouches}
             style={styles.stage}
           >
             <PlanCanvas
@@ -380,6 +485,24 @@ export default function MobileCadScreen() {
                 setTool("select");
               }}
               onSelectWall={(index) => {
+                const start = document.vertices[index]!;
+                const end = document.vertices[(index + 1) % document.vertices.length]!;
+                const wallMidpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+                if (tool !== "select") {
+                  placeMarkerAt(wallMidpoint);
+                  return;
+                }
+                if (selectedId) {
+                  const selectedMarker = document.markers.find((marker) => marker.id === selectedId);
+                  if (selectedMarker) {
+                    updateSelected(closestWallPoint(
+                      document.vertices,
+                      wallMidpoint,
+                      selectedMarker.widthMm,
+                    ));
+                  }
+                  return;
+                }
                 setSelectedWall(index);
                 setSelectedId(undefined);
                 setSelectedVertex(undefined);
@@ -396,9 +519,39 @@ export default function MobileCadScreen() {
                 }), false);
               }}
               onMoveStart={checkpoint}
+              onMoveInteractionChange={(active) => {
+                entityInteraction.current = active;
+              }}
               onMoveVertex={(index, point) => {
                 updateDocument((current) => {
-                  const vertices = moveOrthogonalVertex(current.vertices, index, point);
+                  const vertices = moveVertex(current.vertices, index, point, orthogonal);
+                  return {
+                    ...current,
+                    vertices,
+                    markers: reprojectHostedMarkers(current.markers, current.vertices, vertices),
+                  };
+                }, false);
+              }}
+              onMoveWall={(index, point) => {
+                // The active insertion tool owns this gesture; a small finger
+                // movement after placement must never deform the host wall.
+                if (tool !== "select") return;
+                if (selectedId) {
+                  const selectedMarker = document.markers.find((marker) => marker.id === selectedId);
+                  if (selectedMarker) {
+                    updateSelected(closestWallPoint(document.vertices, point, selectedMarker.widthMm), false);
+                  }
+                  return;
+                }
+                updateDocument((current) => {
+                  const start = current.vertices[index]!;
+                  const end = current.vertices[(index + 1) % current.vertices.length]!;
+                  const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+                  const horizontal = Math.abs(end.x - start.x) >= Math.abs(end.y - start.y);
+                  const vertices = moveWall(current.vertices, index, {
+                    x: orthogonal && horizontal ? 0 : point.x - midpoint.x,
+                    y: orthogonal && !horizontal ? 0 : point.y - midpoint.y,
+                  });
                   return {
                     ...current,
                     vertices,
@@ -415,9 +568,14 @@ export default function MobileCadScreen() {
             />
           </Pressable>
         ) : (
-          <SpatialPreview
-            heightMm={document.clearHeightMm}
+          <NativeCad3D
+            clearHeightMm={document.clearHeightMm}
+            fallbackLabel={t.mobileCad3dUnavailable}
             markers={document.markers}
+            onClearSelection={() => {
+              setSelectedId(undefined);
+              setSelectedWall(undefined);
+            }}
             onOrbitChange={(next) => {
               setOrbit(next);
               setTechnicalView("iso");
@@ -428,14 +586,13 @@ export default function MobileCadScreen() {
             }}
             orbit={orbit}
             selectedId={selectedId}
-            size={stageLayout}
             vertices={document.vertices}
             zoom={zoom}
             onZoomChange={setZoom}
           />
         )}
 
-        <View style={styles.canvasActions}>
+        <View style={[styles.canvasActions, { bottom: Math.max(insets.bottom, 12) }]}>
           {mode === "3d" ? (
             <>
               <CanvasButton label={t.mode3d} onPress={() => setOrbit((value) => ({ ...value, yaw: value.yaw - 15 }))}>↶</CanvasButton>
@@ -444,10 +601,15 @@ export default function MobileCadScreen() {
           ) : null}
           <CanvasButton label={t.mobileCadSpatialPreview} onPress={() => setZoom((value) => Math.max(0.65, value - 0.2))}>−</CanvasButton>
           <CanvasButton label={t.mobileCadSpatialPreview} onPress={() => setZoom((value) => Math.min(2.4, value + 0.2))}>+</CanvasButton>
-          <CanvasButton label={t.mobileCadApplyShape} onPress={() => setZoom(1)}>⌂</CanvasButton>
+          <CanvasButton label={t.mobileCadApplyShape} onPress={() => { setZoom(1); setPlanPan({ x: 0, y: 0 }); }}>⌂</CanvasButton>
           {mode === "2d" ? (
             <CanvasButton label={t.wallLengthMm} onPress={() => setShowDimensions((value) => !value)}>
               {showDimensions ? "↔" : "⇥"}
+            </CanvasButton>
+          ) : null}
+          {mode === "2d" ? (
+            <CanvasButton label={t.orthogonalConstraint} onPress={() => setOrthogonal((value) => !value)} selected={orthogonal}>
+              {orthogonal ? "⊥" : "∠"}
             </CanvasButton>
           ) : null}
           <CanvasButton label={t.mobileCadApplyShape} onPress={() => setSettingsOpen(true)}>⚙</CanvasButton>
@@ -510,12 +672,61 @@ export default function MobileCadScreen() {
       {selected ? (
         <View style={[styles.inspector, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <View style={styles.inspectorHandle} />
-          <Text style={styles.inspectorTitle}>{toolLabels[selected.kind]}</Text>
-          <View style={styles.inspectorFields}>
-            <CompactNumber label={t.componentWidthMm} onChange={(widthMm) => updateSelected({ widthMm })} value={selected.widthMm} />
-            <CompactNumber label={t.componentHeightMm} onChange={(heightMm) => updateSelected({ heightMm })} value={selected.heightMm} />
-            <CompactNumber label={t.componentElevationMm} onChange={(elevationMm) => updateSelected({ elevationMm })} value={selected.elevationMm} />
+          <View style={styles.panelHeader}>
+            <Text style={styles.inspectorTitle}>{toolLabels[selected.kind]}</Text>
+            <Pressable accessibilityRole="button" onPress={() => setSelectedId(undefined)} style={styles.closeButton}>
+              <Text style={styles.closeText}>×</Text>
+            </Pressable>
           </View>
+          <View style={styles.inspectorFields}>
+            <CompactNumber label={t.componentWidthMm} onEdit={() => setNumericEdit({ label: t.componentWidthMm, value: selected.widthMm, onCommit: (widthMm) => updateSelected({ widthMm }) })} value={selected.widthMm} />
+            <CompactNumber label={t.componentHeightMm} onEdit={() => setNumericEdit({ label: t.componentHeightMm, value: selected.heightMm, onCommit: (heightMm) => updateSelected({ heightMm }) })} value={selected.heightMm} />
+            <CompactNumber label={t.componentElevationMm} onEdit={() => setNumericEdit({ label: t.componentElevationMm, value: selected.elevationMm, onCommit: (elevationMm) => updateSelected({ elevationMm }) })} value={selected.elevationMm} />
+          </View>
+          <Text style={styles.variantLabel}>{t.componentType}</Text>
+          <ScrollView
+            accessibilityRole="radiogroup"
+            contentContainerStyle={styles.variantContent}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+          >
+            {cadComponentVariants[selected.kind].map((variant) => (
+              <Pressable
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected.variant === variant }}
+                key={variant}
+                onPress={() => updateSelected({ variant })}
+                style={[styles.variantButton, selected.variant === variant && styles.variantButtonActive]}
+              >
+                <Text style={[styles.variantButtonText, selected.variant === variant && styles.variantButtonTextActive]}>
+                  {variantLabels[variant]}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          {selected.kind === "door" && (selected.variant === "hinged" || selected.variant === "double_hinged") ? (
+            <View>
+              <Text style={styles.swingLabel}>{t.doorSwing}</Text>
+              <View accessibilityRole="radiogroup" style={styles.swingGrid}>
+                {([
+                  ["left_in", t.doorLeftIn],
+                  ["right_in", t.doorRightIn],
+                  ["left_out", t.doorLeftOut],
+                  ["right_out", t.doorRightOut],
+                ] as const).map(([swing, label]) => (
+                  <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: (selected.swing ?? "left_in") === swing }}
+                    key={swing}
+                    onPress={() => updateSelected({ swing })}
+                    style={[styles.swingButton, (selected.swing ?? "left_in") === swing && styles.swingButtonActive]}
+                  >
+                    <Text style={styles.swingButtonText}>{label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             onPress={() => {
@@ -541,21 +752,36 @@ export default function MobileCadScreen() {
           </View>
           <CompactNumber
             label={t.wallLengthMm}
-            onChange={(lengthMm) => {
-              const previousVertices = document.vertices;
-              const vertices = resizeWall(previousVertices, selectedWall, lengthMm);
-              updateDocument((current) => ({
-                ...current,
-                vertices,
-                markers: reprojectHostedMarkers(current.markers, previousVertices, vertices),
-              }));
-            }}
+            onEdit={() => setNumericEdit({
+              label: t.wallLengthMm,
+              value: edgeLengthMm(document.vertices[selectedWall]!, document.vertices[(selectedWall + 1) % document.vertices.length]!),
+              onCommit: (lengthMm) => {
+                const previousVertices = document.vertices;
+                const vertices = resizeWall(previousVertices, selectedWall, lengthMm);
+                updateDocument((current) => ({
+                  ...current,
+                  vertices,
+                  markers: reprojectHostedMarkers(current.markers, previousVertices, vertices),
+                }));
+              },
+            })}
             value={edgeLengthMm(
               document.vertices[selectedWall]!,
               document.vertices[(selectedWall + 1) % document.vertices.length]!,
             )}
           />
         </View>
+      ) : null}
+      {numericEdit ? (
+        <NumericKeyboardEditor
+          cancelLabel={t.cancel}
+          confirmLabel={t.confirmMeasurement}
+          edit={numericEdit}
+          onClose={() => {
+            Keyboard.dismiss();
+            setNumericEdit(undefined);
+          }}
+        />
       ) : null}
     </KeyboardAvoidingView>
   );
@@ -572,14 +798,15 @@ function createViewport(
   width: number,
   height: number,
   zoom = 1,
+  pan = { x: 0, y: 0 },
 ) {
   const padding = 44;
   const scale = Math.min(
     (width - padding * 2) / Math.max(bounds.maxX - bounds.minX, 1),
     (height - padding * 2) / Math.max(bounds.maxY - bounds.minY, 1),
   ) * zoom;
-  const offsetX = (width - (bounds.maxX - bounds.minX) * scale) / 2;
-  const offsetY = (height - (bounds.maxY - bounds.minY) * scale) / 2;
+  const offsetX = (width - (bounds.maxX - bounds.minX) * scale) / 2 + pan.x;
+  const offsetY = (height - (bounds.maxY - bounds.minY) * scale) / 2 + pan.y;
   return {
     scale,
     toScreen: (point: Point2Mm) => ({ x: offsetX + (point.x - bounds.minX) * scale, y: offsetY + (point.y - bounds.minY) * scale }),
@@ -588,13 +815,15 @@ function createViewport(
 }
 
 function PlanCanvas({
-  markers, onMoveMarker, onMoveStart, onMoveVertex, onSelect, onSelectVertex, onSelectWall,
-  selectedId, selectedVertex, selectedWall, showDimensions, vertices, viewport,
+  markers, onMoveMarker, onMoveStart, onMoveVertex, onMoveWall, onSelect, onSelectVertex, onSelectWall,
+  onMoveInteractionChange, selectedId, selectedVertex, selectedWall, showDimensions, vertices, viewport,
 }: {
   markers: readonly MobileCadMarker[];
   onMoveMarker: (id: string, point: Point2Mm) => void;
   onMoveStart: () => void;
+  onMoveInteractionChange: (active: boolean) => void;
   onMoveVertex: (index: number, point: Point2Mm) => void;
+  onMoveWall: (index: number, point: Point2Mm) => void;
   onSelect: (id: string) => void;
   onSelectVertex: (index: number) => void;
   onSelectWall: (index: number) => void;
@@ -605,15 +834,43 @@ function PlanCanvas({
   vertices: readonly Point2Mm[];
   viewport: ReturnType<typeof createViewport>;
 }) {
+  const selectedMarker = markers.find((marker) => marker.id === selectedId);
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
       {vertices.map((start, index) => {
         const a = viewport.toScreen(start);
         const b = viewport.toScreen(vertices[(index + 1) % vertices.length]!);
         const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const modelMidpoint = {
+          x: (start.x + vertices[(index + 1) % vertices.length]!.x) / 2,
+          y: (start.y + vertices[(index + 1) % vertices.length]!.y) / 2,
+        };
+        const length = Math.hypot(b.x - a.x, b.y - a.y);
+        const angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
         return (
           <View key={`wall-${index}`}>
             <PlanLine a={a} b={b} selected={selectedWall === index} />
+            <DraggablePlanEntity
+              modelPoint={modelMidpoint}
+              onInteractionChange={onMoveInteractionChange}
+              onMove={(next) => onMoveWall(index, next)}
+              onMoveStart={() => {
+                onSelectWall(index);
+                onMoveStart();
+              }}
+              scale={viewport.scale}
+              style={[
+                styles.wallHit,
+                {
+                  left: midpoint.x - length / 2,
+                  top: midpoint.y - 22,
+                  transform: [{ rotate: `${angle}deg` }],
+                  width: length,
+                },
+              ]}
+            >
+              <View />
+            </DraggablePlanEntity>
             {showDimensions ? (
               <Pressable
                 accessibilityRole="button"
@@ -640,14 +897,14 @@ function PlanCanvas({
               onSelectVertex(index);
               onMoveStart();
             }}
+            onInteractionChange={onMoveInteractionChange}
             scale={viewport.scale}
             style={[
-              styles.vertex,
-              { left: point.x - 12, top: point.y - 12 },
-              selectedVertex === index && styles.vertexSelected,
+              styles.vertexHit,
+              { left: point.x - 24, top: point.y - 24 },
             ]}
           >
-            <View />
+            <View style={[styles.vertex, selectedVertex === index && styles.vertexSelected]} />
           </DraggablePlanEntity>
         );
       })}
@@ -657,7 +914,7 @@ function PlanCanvas({
         const start = vertices[marker.wallIndex]!;
         const end = vertices[(marker.wallIndex + 1) % vertices.length]!;
         const angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
-        const symbolWidth = Math.max(36, marker.widthMm * viewport.scale);
+        const symbolWidth = Math.max(52, marker.widthMm * viewport.scale);
         return (
           <DraggablePlanEntity
             modelPoint={marker.point}
@@ -667,20 +924,74 @@ function PlanCanvas({
               onSelect(marker.id);
               onMoveStart();
             }}
+            onInteractionChange={onMoveInteractionChange}
             scale={viewport.scale}
             style={[
               styles.cadSymbol,
               {
                 left: point.x - symbolWidth / 2,
-                top: point.y - 24,
+                top: point.y - 30,
                 transform: [{ rotate: `${angle}deg` }],
                 width: symbolWidth,
               },
               selected && styles.markerSelected,
             ]}
           >
-            <CadSymbol2D kind={marker.kind} />
+            <CadSymbol2D marker={marker} />
           </DraggablePlanEntity>
+        );
+      })}
+      {selectedMarker && (selectedMarker.kind === "door" || selectedMarker.kind === "window") ? (
+        <OpeningDimensions marker={selectedMarker} vertices={vertices} viewport={viewport} />
+      ) : null}
+    </View>
+  );
+}
+
+function OpeningDimensions({
+  marker,
+  vertices,
+  viewport,
+}: {
+  marker: MobileCadMarker;
+  vertices: readonly Point2Mm[];
+  viewport: ReturnType<typeof createViewport>;
+}) {
+  const start = vertices[marker.wallIndex]!;
+  const end = vertices[(marker.wallIndex + 1) % vertices.length]!;
+  const wallLength = Math.max(1, edgeLengthMm(start, end));
+  const tangent = { x: (end.x - start.x) / wallLength, y: (end.y - start.y) / wallLength };
+  const clearances = openingClearancesMm(marker, vertices);
+  const openingStart = {
+    x: marker.point.x - tangent.x * marker.widthMm / 2,
+    y: marker.point.y - tangent.y * marker.widthMm / 2,
+  };
+  const openingEnd = {
+    x: marker.point.x + tangent.x * marker.widthMm / 2,
+    y: marker.point.y + tangent.y * marker.widthMm / 2,
+  };
+  const points = [start, openingStart, openingEnd, end].map(viewport.toScreen);
+  const screenDx = points[3]!.x - points[0]!.x;
+  const screenDy = points[3]!.y - points[0]!.y;
+  const screenLength = Math.max(1, Math.hypot(screenDx, screenDy));
+  const normal = { x: -screenDy / screenLength * 30, y: screenDx / screenLength * 30 };
+  const labels = [
+    { from: points[0]!, to: points[1]!, value: clearances.beforeMm },
+    { from: points[1]!, to: points[2]!, value: marker.widthMm, active: true },
+    { from: points[2]!, to: points[3]!, value: clearances.afterMm },
+  ];
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {labels.map((label, index) => {
+        const x = (label.from.x + label.to.x) / 2 + normal.x;
+        const y = (label.from.y + label.to.y) / 2 + normal.y;
+        return (
+          <View
+            key={index}
+            style={[styles.openingDimension, label.active && styles.openingDimensionActive, { left: x - 30, top: y - 11 }]}
+          >
+            <Text style={styles.openingDimensionText}>{label.value} mm</Text>
+          </View>
         );
       })}
     </View>
@@ -692,6 +1003,7 @@ function DraggablePlanEntity({
   modelPoint,
   onMove,
   onMoveStart,
+  onInteractionChange,
   scale,
   style,
 }: {
@@ -699,37 +1011,91 @@ function DraggablePlanEntity({
   modelPoint: Point2Mm;
   onMove: (point: Point2Mm) => void;
   onMoveStart: () => void;
+  onInteractionChange: (active: boolean) => void;
   scale: number;
   style: object;
 }) {
   const origin = useRef(modelPoint);
-  const responder = useMemo(
-    () => PanResponder.create({
+  const interaction = useRef({ modelPoint, onInteractionChange, onMove, onMoveStart, scale });
+  interaction.current = { modelPoint, onInteractionChange, onMove, onMoveStart, scale };
+  const responder = useRef(
+    PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) + Math.abs(gesture.dy) > 3,
       onPanResponderGrant: () => {
-        origin.current = modelPoint;
-        onMoveStart();
+        origin.current = interaction.current.modelPoint;
+        interaction.current.onInteractionChange(true);
+        interaction.current.onMoveStart();
       },
       onPanResponderMove: (_, gesture) => {
-        onMove({
-          x: Math.round((origin.current.x + gesture.dx / Math.max(scale, 0.0001)) / 50) * 50,
-          y: Math.round((origin.current.y + gesture.dy / Math.max(scale, 0.0001)) / 50) * 50,
+        const current = interaction.current;
+        current.onMove({
+          x: Math.round((origin.current.x + gesture.dx / Math.max(current.scale, 0.0001)) / 50) * 50,
+          y: Math.round((origin.current.y + gesture.dy / Math.max(current.scale, 0.0001)) / 50) * 50,
         });
       },
+      onPanResponderRelease: () => interaction.current.onInteractionChange(false),
+      onPanResponderTerminate: () => interaction.current.onInteractionChange(false),
     }),
-    [modelPoint, onMove, onMoveStart, scale],
-  );
+  ).current;
   return <View {...responder.panHandlers} style={style}>{children}</View>;
 }
 
-function CadSymbol2D({ kind }: { kind: CadComponentKind }) {
+function CadSymbol2D({ marker }: { marker: MobileCadMarker }) {
+  const { kind } = marker;
   if (kind === "door") {
+    if (marker.variant === "sliding" || marker.variant === "pocket") {
+      return (
+        <View style={styles.openingSymbol}>
+          <View style={styles.wallGap} />
+          <View style={[styles.doorJamb, { left: 0 }]} />
+          <View style={[styles.doorJamb, { right: 0 }]} />
+          <View style={[styles.slidingLeaf, { left: marker.variant === "pocket" ? "8%" : "4%" }]} />
+          <View style={[styles.slidingLeaf, { right: marker.variant === "pocket" ? "-28%" : "4%", top: 34 }]} />
+        </View>
+      );
+    }
+    if (marker.variant === "folding") {
+      return (
+        <View style={styles.openingSymbol}>
+          <View style={styles.wallGap} />
+          <View style={[styles.doorJamb, { left: 0 }]} />
+          <View style={[styles.doorJamb, { right: 0 }]} />
+          <View style={[styles.foldLeaf, { left: "12%", transform: [{ rotate: "28deg" }] }]} />
+          <View style={[styles.foldLeaf, { right: "12%", transform: [{ rotate: "-28deg" }] }]} />
+        </View>
+      );
+    }
+    const swing = marker.swing ?? "left_in";
+    const hingeLeft = swing.startsWith("left");
+    const opensIn = swing.endsWith("_in");
+    const rotation = (hingeLeft ? -1 : 1) * (opensIn ? 64 : -64);
+    if (marker.variant === "double_hinged") {
+      return (
+        <View style={styles.openingSymbol}>
+          <View style={styles.wallGap} />
+          <View style={[styles.doorJamb, { left: 0 }]} />
+          <View style={[styles.doorJamb, { right: 0 }]} />
+          <View style={[styles.doubleDoorLeaf, { left: 0, transform: [{ rotate: `${opensIn ? -58 : 58}deg` }], transformOrigin: "left center" }]} />
+          <View style={[styles.doubleDoorLeaf, { right: 0, transform: [{ rotate: `${opensIn ? 58 : -58}deg` }], transformOrigin: "right center" }]} />
+        </View>
+      );
+    }
     return (
       <View style={styles.openingSymbol}>
         <View style={styles.wallGap} />
-        <View style={styles.doorLeaf} />
-        <View style={styles.doorSwing} />
+        <View style={[styles.doorJamb, { left: 0 }]} />
+        <View style={[styles.doorJamb, { right: 0 }]} />
+        <View
+          style={[
+            styles.doorLeaf,
+            hingeLeft ? { left: 0 } : { right: 0 },
+            {
+              transform: [{ rotate: `${rotation}deg` }],
+              transformOrigin: hingeLeft ? "left center" : "right center",
+            },
+          ]}
+        />
       </View>
     );
   }
@@ -755,165 +1121,81 @@ function PlanLine({ a, b, selected = false }: { a: Point2Mm; b: Point2Mm; select
   return <View style={[styles.wall, selected && styles.wallSelected, { left: (a.x + b.x - length) / 2, top: (a.y + b.y) / 2 - 3, width: length, transform: [{ rotate: `${angle}deg` }] }]} />;
 }
 
-function SpatialPreview({
-  heightMm, markers, onOrbitChange, onSelect, onZoomChange, orbit, selectedId, size, vertices, zoom,
-}: {
-  heightMm: number;
-  markers: readonly MobileCadMarker[];
-  onOrbitChange: (orbit: { yaw: number; pitch: number }) => void;
-  onSelect: (id: string) => void;
-  onZoomChange: (zoom: number) => void;
-  orbit: { yaw: number; pitch: number };
-  selectedId?: string;
-  size: { width: number; height: number };
-  vertices: readonly Point2Mm[];
-  zoom: number;
-}) {
-  const gesture = useRef<{ distance?: number; x: number; y: number } | undefined>(undefined);
-  const bounds = modelBounds(vertices);
-  const extent = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, heightMm, 1);
-  const scale = (Math.min(size.width, size.height) * 0.68 * zoom) / extent;
-  const yaw = orbit.yaw * Math.PI / 180;
-  const pitch = orbit.pitch * Math.PI / 180;
-  const centerX = (bounds.minX + bounds.maxX) / 2;
-  const centerY = (bounds.minY + bounds.maxY) / 2;
-  const project = (point: Point2Mm, z = 0) => ({
-    x: size.width / 2 + ((point.x - centerX) * Math.cos(yaw) - (point.y - centerY) * Math.sin(yaw)) * scale,
-    y: size.height / 2
-      + (((point.x - centerX) * Math.sin(yaw) + (point.y - centerY) * Math.cos(yaw)) * Math.sin(pitch)
-      - (z - heightMm / 2) * Math.cos(pitch)) * scale,
-  });
-  function touchState(event: GestureResponderEvent) {
-    const touches = event.nativeEvent.touches;
-    const first = touches[0];
-    const second = touches[1];
-    if (!first) return;
-    if (second) {
-      gesture.current = {
-        distance: Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY),
-        x: (first.pageX + second.pageX) / 2,
-        y: (first.pageY + second.pageY) / 2,
-      };
-    } else {
-      gesture.current = { x: first.pageX, y: first.pageY };
-    }
-  }
-
-  function moveCamera(event: GestureResponderEvent) {
-    const previous = gesture.current;
-    const touches = event.nativeEvent.touches;
-    const first = touches[0];
-    const second = touches[1];
-    if (!previous || !first) return touchState(event);
-    if (second) {
-      const distance = Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY);
-      if (previous.distance) {
-        onZoomChange(Math.max(0.55, Math.min(2.8, zoom * distance / previous.distance)));
-      }
-    } else {
-      onOrbitChange({
-        yaw: orbit.yaw + (first.pageX - previous.x) * 0.35,
-        pitch: Math.max(-70, Math.min(85, orbit.pitch - (first.pageY - previous.y) * 0.25)),
-      });
-    }
-    touchState(event);
-  }
-
-  return (
-    <View
-      accessibilityLabel={messages[getDeviceLocale()].mobileCadSpatialPreview}
-      onTouchEnd={() => { gesture.current = undefined; }}
-      onTouchMove={moveCamera}
-      onTouchStart={touchState}
-      style={styles.stage}
-    >
-      {vertices.map((start, index) => (
-        <PlanLine a={project(start)} b={project(vertices[(index + 1) % vertices.length]!)} key={`floor-${index}`} />
-      ))}
-      {vertices.map((start, index) => {
-        const end = vertices[(index + 1) % vertices.length]!;
-        return (
-          <View key={`spatial-${index}`} pointerEvents="none">
-            <PlanLine a={project(start)} b={project(end)} />
-            <PlanLine a={project(start)} b={project(start, heightMm)} />
-            <PlanLine a={project(start, heightMm)} b={project(end, heightMm)} />
-          </View>
-        );
-      })}
-      {markers.map((marker) => {
-        const wallStart = vertices[marker.wallIndex]!;
-        const wallEnd = vertices[(marker.wallIndex + 1) % vertices.length]!;
-        const wallLength = Math.max(1, edgeLengthMm(wallStart, wallEnd));
-        const tangent = {
-          x: (wallEnd.x - wallStart.x) / wallLength,
-          y: (wallEnd.y - wallStart.y) / wallLength,
-        };
-        const left = {
-          x: marker.point.x - tangent.x * marker.widthMm / 2,
-          y: marker.point.y - tangent.y * marker.widthMm / 2,
-        };
-        const right = {
-          x: marker.point.x + tangent.x * marker.widthMm / 2,
-          y: marker.point.y + tangent.y * marker.widthMm / 2,
-        };
-        const bottomLeft = project(left, marker.elevationMm);
-        const bottomRight = project(right, marker.elevationMm);
-        const topLeft = project(left, marker.elevationMm + marker.heightMm);
-        const topRight = project(right, marker.elevationMm + marker.heightMm);
-        const center = project(marker.point, marker.elevationMm + marker.heightMm / 2);
-        if (marker.kind === "door" || marker.kind === "window") {
-          return (
-            <View key={marker.id} pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-              <PlanLine a={bottomLeft} b={bottomRight} selected={selectedId === marker.id} />
-              <PlanLine a={bottomLeft} b={topLeft} selected={selectedId === marker.id} />
-              <PlanLine a={topLeft} b={topRight} selected={selectedId === marker.id} />
-              <PlanLine a={bottomRight} b={topRight} selected={selectedId === marker.id} />
-              {marker.kind === "window" ? <PlanLine a={bottomLeft} b={topRight} /> : null}
-              <Pressable
-                onPress={() => onSelect(marker.id)}
-                style={[styles.spatialOpeningHit, { left: center.x - 22, top: center.y - 22 }]}
-              />
-            </View>
-          );
-        }
-        return (
-          <Pressable
-            key={marker.id}
-            onPress={() => onSelect(marker.id)}
-            style={[styles.spatialMarker, selectedId === marker.id && styles.spatialMarkerSelected, { left: center.x - 18, top: center.y - 18 }]}
-          >
-            <Text style={styles.spatialGlyph}>{toolGlyphs[marker.kind]}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 function CanvasButton({
   children,
   label,
   onPress,
+  selected = false,
 }: {
   children: string;
   label: string;
   onPress: () => void;
+  selected?: boolean;
 }) {
   return (
-    <Pressable accessibilityLabel={label} accessibilityRole="button" onPress={onPress} style={styles.canvasButton}>
-      <Text style={styles.canvasButtonText}>{children}</Text>
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={[styles.canvasButton, selected && styles.canvasButtonSelected]}
+    >
+      <Text style={[styles.canvasButtonText, selected && styles.canvasButtonTextSelected]}>{children}</Text>
     </Pressable>
   );
 }
 
-function CompactNumber({ label, onChange, value }: { label: string; onChange: (value: number) => void; value: number }) {
+function CompactNumber({ label, onEdit, value }: { label: string; onEdit: () => void; value: number }) {
   return (
     <View style={styles.compact}>
       <Text numberOfLines={1} style={styles.compactLabel}>{label}</Text>
-      <View style={styles.compactInput}>
-        <TextInput keyboardType="number-pad" onChangeText={(text) => onChange(Number(text) || 0)} style={styles.compactText} value={String(value)} />
+      <Pressable accessibilityLabel={label} accessibilityRole="button" onPress={onEdit} style={styles.compactInput}>
+        <Text style={styles.compactText}>{value}</Text>
         <Text style={styles.compactUnit}>mm</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function NumericKeyboardEditor({
+  cancelLabel,
+  confirmLabel,
+  edit,
+  onClose,
+}: {
+  cancelLabel: string;
+  confirmLabel: string;
+  edit: NumericEdit;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(String(edit.value));
+  const commit = () => {
+    const value = Number(draft);
+    if (Number.isFinite(value) && value >= 0) edit.onCommit(Math.round(value));
+    onClose();
+  };
+  return (
+    <View style={styles.numericEditor}>
+      <Text numberOfLines={1} style={styles.numericEditorLabel}>{edit.label}</Text>
+      <View style={styles.numericEditorInput}>
+        <TextInput
+          accessibilityLabel={edit.label}
+          autoFocus
+          keyboardType="number-pad"
+          onChangeText={setDraft}
+          onSubmitEditing={commit}
+          selectTextOnFocus
+          style={styles.numericEditorText}
+          value={draft}
+        />
+        <Text style={styles.numericEditorUnit}>mm</Text>
       </View>
+      <Pressable accessibilityLabel={cancelLabel} accessibilityRole="button" onPress={onClose} style={styles.numericEditorCancel}>
+        <Text style={styles.numericEditorCancelText}>×</Text>
+      </Pressable>
+      <Pressable accessibilityRole="button" onPress={commit} style={styles.numericEditorConfirm}>
+        <Text style={styles.numericEditorConfirmText}>{confirmLabel}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -953,29 +1235,35 @@ const styles = StyleSheet.create({
   retryButton: { backgroundColor: theme.colors.accent, borderRadius: 20, marginTop: 14, minHeight: 44, justifyContent: "center", paddingHorizontal: 20 },
   retryText: { color: theme.colors.ink, fontWeight: "800" },
   wall: { backgroundColor: theme.colors.brand, borderRadius: 3, height: 6, position: "absolute" },
+  wallHit: { backgroundColor: "transparent", height: 44, position: "absolute" },
   wallSelected: { backgroundColor: theme.colors.accent, height: 9 },
   dimensionBadge: { alignItems: "center", backgroundColor: "rgba(249,248,244,.9)", borderRadius: 6, height: 24, justifyContent: "center", position: "absolute", width: 68 },
   dimensionText: { color: theme.colors.ink, fontSize: 8, fontWeight: "800" },
-  vertex: { backgroundColor: theme.colors.surface, borderColor: theme.colors.brand, borderRadius: 12, borderWidth: 3, height: 24, position: "absolute", width: 24 },
+  openingDimension: { alignItems: "center", backgroundColor: "rgba(249,248,244,.96)", borderColor: theme.colors.border, borderRadius: 6, borderWidth: 1, height: 22, justifyContent: "center", position: "absolute", width: 60 },
+  openingDimensionActive: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent },
+  openingDimensionText: { color: theme.colors.ink, fontSize: 8, fontWeight: "800" },
+  vertexHit: { alignItems: "center", height: 48, justifyContent: "center", position: "absolute", width: 48 },
+  vertex: { backgroundColor: theme.colors.surface, borderColor: theme.colors.brand, borderRadius: 12, borderWidth: 3, height: 24, width: 24 },
   vertexSelected: { backgroundColor: theme.colors.accent, borderColor: theme.colors.ink, transform: [{ scale: 1.2 }] },
-  cadSymbol: { alignItems: "center", borderColor: "transparent", borderRadius: 10, borderWidth: 2, height: 48, justifyContent: "center", minWidth: 36, position: "absolute" },
+  cadSymbol: { alignItems: "center", borderColor: "transparent", borderRadius: 10, borderWidth: 2, height: 60, justifyContent: "center", minWidth: 52, position: "absolute" },
   markerSelected: { backgroundColor: "rgba(244,172,61,.22)", borderColor: theme.colors.accent, borderStyle: "dashed" },
   markerGlyph: { color: theme.colors.brand, fontSize: 18, fontWeight: "800" },
   openingSymbol: { height: 48, position: "relative", width: "100%" },
-  wallGap: { backgroundColor: "#E7ECE9", height: 12, left: 0, position: "absolute", right: 0, top: 18 },
-  doorLeaf: { backgroundColor: theme.colors.ink, height: 3, left: 0, position: "absolute", top: 22, transform: [{ rotate: "-45deg" }], transformOrigin: "left center", width: "70%" },
-  doorSwing: { borderColor: theme.colors.brand, borderRadius: 30, borderRightWidth: 1, borderTopWidth: 1, height: 34, left: 0, position: "absolute", top: -7, width: "70%" },
+  wallGap: { backgroundColor: "#E7ECE9", height: 12, left: 0, position: "absolute", right: 0, top: 24 },
+  doorJamb: { backgroundColor: theme.colors.ink, height: 18, position: "absolute", top: 21, width: 3 },
+  doorLeaf: { backgroundColor: theme.colors.ink, height: 3, position: "absolute", top: 29, width: "100%" },
+  doubleDoorLeaf: { backgroundColor: theme.colors.ink, height: 3, position: "absolute", top: 29, width: "50%" },
+  slidingLeaf: { backgroundColor: theme.colors.ink, height: 3, position: "absolute", right: "50%", top: 25, width: "58%" },
+  foldLeaf: { backgroundColor: theme.colors.ink, height: 3, position: "absolute", top: 29, width: "43%" },
   windowLine: { backgroundColor: theme.colors.brand, height: 3, left: 0, position: "absolute", right: 0 },
   technicalSymbol: { alignItems: "center", backgroundColor: theme.colors.surface, borderColor: theme.colors.brand, borderRadius: 18, borderWidth: 2, height: 36, justifyContent: "center", width: 36 },
   coldSymbol: { borderColor: "#3277B5" },
   hotSymbol: { borderColor: "#D86045" },
-  spatialMarker: { alignItems: "center", backgroundColor: theme.colors.surface, borderColor: theme.colors.brand, borderRadius: 18, borderWidth: 2, height: 36, justifyContent: "center", position: "absolute", width: 36 },
-  spatialMarkerSelected: { backgroundColor: theme.colors.accent, borderWidth: 3 },
-  spatialOpeningHit: { backgroundColor: "rgba(244,172,61,.12)", borderColor: theme.colors.accent, borderRadius: 8, borderWidth: 1, height: 44, position: "absolute", width: 44 },
-  spatialGlyph: { color: theme.colors.ink, fontSize: 16, fontWeight: "800" },
   canvasActions: { bottom: 14, flexDirection: "row", gap: 8, position: "absolute", right: 14 },
   canvasButton: { alignItems: "center", backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderRadius: 24, borderWidth: 1, elevation: 3, height: 48, justifyContent: "center", shadowColor: theme.colors.brand, shadowOffset: { height: 3, width: 0 }, shadowOpacity: 0.12, shadowRadius: 7, width: 48 },
   canvasButtonText: { color: theme.colors.brand, fontSize: 22, fontWeight: "800" },
+  canvasButtonSelected: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
+  canvasButtonTextSelected: { color: theme.colors.ink },
   viewBar: { backgroundColor: "rgba(255,255,255,.94)", borderRadius: 16, flexDirection: "row", gap: 4, left: 12, padding: 4, position: "absolute", right: 12, top: 12 },
   viewButton: { alignItems: "center", borderRadius: 12, flex: 1, minHeight: 40, justifyContent: "center", paddingHorizontal: 4 },
   viewButtonActive: { backgroundColor: theme.colors.brand },
@@ -1002,6 +1290,26 @@ const styles = StyleSheet.create({
   compactInput: { alignItems: "center", backgroundColor: theme.colors.canvas, borderRadius: 12, flexDirection: "row", marginTop: 4, minHeight: 44, paddingHorizontal: 8 },
   compactText: { color: theme.colors.ink, flex: 1, fontSize: 14, fontWeight: "800" },
   compactUnit: { color: theme.colors.muted, fontSize: 10 },
+  swingLabel: { color: theme.colors.muted, fontSize: 10, fontWeight: "800", marginTop: 8 },
+  variantLabel: { color: theme.colors.muted, fontSize: 10, fontWeight: "800", marginTop: 8 },
+  variantContent: { gap: 6, paddingRight: 8 },
+  variantButton: { alignItems: "center", backgroundColor: theme.colors.canvas, borderColor: theme.colors.border, borderRadius: 16, borderWidth: 1, minHeight: 44, justifyContent: "center", marginTop: 5, paddingHorizontal: 14 },
+  variantButtonActive: { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand },
+  variantButtonText: { color: theme.colors.ink, fontSize: 11, fontWeight: "800" },
+  variantButtonTextActive: { color: theme.colors.surface },
+  swingGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 5 },
+  swingButton: { alignItems: "center", backgroundColor: theme.colors.canvas, borderColor: theme.colors.border, borderRadius: 12, borderWidth: 1, flexBasis: "48%", flexGrow: 1, minHeight: 44, justifyContent: "center", paddingHorizontal: 6 },
+  swingButtonActive: { backgroundColor: theme.colors.accentSoft, borderColor: theme.colors.accent },
+  swingButtonText: { color: theme.colors.ink, fontSize: 10, fontWeight: "800", textAlign: "center" },
+  numericEditor: { alignItems: "center", backgroundColor: theme.colors.surface, borderTopColor: theme.colors.border, borderTopWidth: 1, bottom: 0, elevation: 30, flexDirection: "row", gap: 8, left: 0, minHeight: 76, paddingHorizontal: 12, position: "absolute", right: 0, zIndex: 50 },
+  numericEditorLabel: { color: theme.colors.muted, fontSize: 10, fontWeight: "800", maxWidth: 84 },
+  numericEditorInput: { alignItems: "center", backgroundColor: theme.colors.canvas, borderColor: theme.colors.accent, borderRadius: 12, borderWidth: 2, flex: 1, flexDirection: "row", minHeight: 50, paddingHorizontal: 12 },
+  numericEditorText: { color: theme.colors.ink, flex: 1, fontSize: 22, fontWeight: "900", paddingVertical: 0 },
+  numericEditorUnit: { color: theme.colors.muted, fontSize: 12, fontWeight: "800" },
+  numericEditorCancel: { alignItems: "center", height: 48, justifyContent: "center", width: 42 },
+  numericEditorCancelText: { color: theme.colors.ink, fontSize: 28 },
+  numericEditorConfirm: { alignItems: "center", backgroundColor: theme.colors.accent, borderRadius: 12, minHeight: 48, justifyContent: "center", maxWidth: 92, paddingHorizontal: 10 },
+  numericEditorConfirmText: { color: theme.colors.ink, fontSize: 10, fontWeight: "900", textAlign: "center" },
   deleteButton: { alignItems: "center", minHeight: 44, justifyContent: "center", marginTop: 6 },
   deleteText: { color: theme.colors.danger, fontSize: 13, fontWeight: "800" },
 });

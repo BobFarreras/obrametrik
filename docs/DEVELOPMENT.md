@@ -48,11 +48,11 @@ pnpm --filter @obrametrik/web dev
 Activa la depuració USB, connecta i autoritza el dispositiu. Des de l’arrel:
 
 ```powershell
-pnpm --filter @obrametrik/mobile android:usb
-pnpm --filter @obrametrik/mobile dev:tunnel
+pnpm --filter @obrametrik/mobile dev:usb
 ```
 
-`android:usb` executa `adb reverse` per als ports `55321` i `3000`. Això
+`dev:usb` executa `adb reverse` per als ports `8081`, `55321` i `3000`, i
+inicia Metro sense dependre de ngrok. Això
 permet que `127.0.0.1` dins del telèfon arribi al Supabase i a la web del PC.
 Cal repetir-lo després de reconnectar el cable, reiniciar el dispositiu o
 reiniciar el servidor ADB.
@@ -60,11 +60,16 @@ reiniciar el servidor ADB.
 Si Expo conserva variables antigues:
 
 ```powershell
-pnpm --filter @obrametrik/mobile dev:tunnel -- --clear
+pnpm --filter @obrametrik/mobile dev:usb -- --clear
 ```
 
 No substitueixis la URL de Supabase per la de Studio: `55323` és la interfície
 administrativa; els clients utilitzen l’API `55321`.
+
+El visor CAD 3D utilitza `expo-gl`, Three.js i React Three Fiber Native. Cal
+validar-lo en un Android físic i en un iPhone/iPad físic; el simulador iOS pot
+tenir suport OpenGL ES incomplet. El 2D continua disponible si el context 3D no
+es pot crear.
 
 ## Android Emulator
 

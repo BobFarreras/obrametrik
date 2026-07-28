@@ -4,7 +4,9 @@ import {
   closestWallPoint,
   documentForSpaceId,
   edgeLengthMm,
+  moveWall,
   moveOrthogonalVertex,
+  openingClearancesMm,
   reprojectHostedMarkers,
   resizeWall,
   toCadPlan,
@@ -34,6 +36,30 @@ describe("mobile CAD model", () => {
       projectId: "project-1",
       clearHeightMm: 2500,
       components: [],
+    });
+  });
+
+  it("serializes the selected technical variant as shared CAD metadata", () => {
+    const document: MobileCadDocument = {
+      name: "Bany",
+      kind: "bathroom",
+      vertices: cadTemplates.rectangle(3000, 2200),
+      clearHeightMm: 2500,
+      markers: [{
+        id: "door-1",
+        kind: "door",
+        variant: "sliding",
+        swing: "left_in",
+        point: { x: 1500, y: 0 },
+        wallIndex: 0,
+        widthMm: 900,
+        heightMm: 2100,
+        elevationMm: 0,
+      }],
+    };
+    expect(toCadPlan("project-1", document).components[0]).toMatchObject({
+      kind: "door",
+      variant: "sliding",
     });
   });
 
@@ -71,7 +97,29 @@ describe("mobile CAD model", () => {
       widthMm: 900,
       heightMm: 2100,
       elevationMm: 0,
+      variant: "hinged" as const,
     };
     expect(reprojectHostedMarkers([marker], previous, next)[0]?.point).toEqual({ x: 3000, y: 0 });
+  });
+
+  it("moves a complete wall without changing its length", () => {
+    const moved = moveWall(cadTemplates.rectangle(4000, 3000), 0, { x: 0, y: 500 });
+    expect(moved[0]).toEqual({ x: 0, y: 500 });
+    expect(moved[1]).toEqual({ x: 4000, y: 500 });
+    expect(edgeLengthMm(moved[0]!, moved[1]!)).toBe(4000);
+  });
+
+  it("calculates both clearances around a centred opening", () => {
+    expect(openingClearancesMm({
+      id: "door-1",
+      kind: "door",
+      point: { x: 500, y: 0 },
+      wallIndex: 0,
+      widthMm: 500,
+      heightMm: 2100,
+      elevationMm: 0,
+      swing: "left_in",
+      variant: "hinged",
+    }, cadTemplates.rectangle(1000, 800))).toEqual({ beforeMm: 250, afterMm: 250 });
   });
 });

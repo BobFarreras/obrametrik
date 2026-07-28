@@ -15,5 +15,6 @@ if (-not ($devices -match "\tdevice$")) {
 
 & $adbPath reverse tcp:55321 tcp:55321
 & $adbPath reverse tcp:3000 tcp:3000
+& $adbPath reverse tcp:8081 tcp:8081
 
-Write-Output "USB preparado: Supabase 55321 y API web 3000."
+Write-Output "USB preparado: Metro 8081, Supabase 55321 y API web 3000."

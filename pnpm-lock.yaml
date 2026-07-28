@@ -30,6 +30,15 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@obrametrik/application':
+        specifier: workspace:*
+        version: link:../../packages/application
+      '@obrametrik/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@obrametrik/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@obrametrik/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n

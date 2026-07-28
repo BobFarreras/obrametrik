@@ -1,4 +1,5 @@
 import { publicMobileEnvironmentSchema } from "@obrametrik/validation";
+import type { Database } from "@obrametrik/database";
 import { createClient, processLock } from "@supabase/supabase-js";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
@@ -30,7 +31,7 @@ const sessionStorage = {
   },
 };
 
-export const supabase = createClient(
+export const supabase = createClient<Database>(
   env.EXPO_PUBLIC_SUPABASE_URL,
   env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   {

@@ -6,15 +6,20 @@
   "scripts": {
     "dev": "expo start",
     "dev:tunnel": "expo start --tunnel",
+    "dev:offline": "expo start --offline",
+    "dev:usb": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/android-reverse.ps1 && expo start --offline",
     "android:usb": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/android-reverse.ps1",
     "build": "expo export --platform web",
-    "lint": "eslint app app.config.ts",
+    "lint": "eslint app src app.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "echo E2E requires a development build",
     "clean": "rimraf dist .expo"
   },
   "dependencies": {
+    "@obrametrik/application": "workspace:*",
+    "@obrametrik/database": "workspace:*",
+    "@obrametrik/domain": "workspace:*",
     "@obrametrik/i18n": "workspace:*",
     "@obrametrik/ui-tokens": "workspace:*",
     "@obrametrik/validation": "workspace:*",

@@ -108,6 +108,66 @@ export function moveOrthogonalVertex(
   return result;
 }
 
+export function edgeLengthMm(start: Point2Mm, end: Point2Mm): number {
+  return Math.round(Math.hypot(end.x - start.x, end.y - start.y));
+}
+
+export function resizeWall(
+  vertices: readonly Point2Mm[],
+  wallIndex: number,
+  lengthMm: number,
+): readonly Point2Mm[] {
+  const start = vertices[wallIndex];
+  const endIndex = (wallIndex + 1) % vertices.length;
+  const end = vertices[endIndex];
+  if (!start || !end || !Number.isFinite(lengthMm) || lengthMm < 100) return vertices;
+  const currentLength = Math.hypot(end.x - start.x, end.y - start.y);
+  if (!currentLength) return vertices;
+  const nextEnd = {
+    x: Math.round(start.x + ((end.x - start.x) / currentLength) * lengthMm),
+    y: Math.round(start.y + ((end.y - start.y) / currentLength) * lengthMm),
+  };
+  return vertices.map((vertex, index) => (index === endIndex ? nextEnd : vertex));
+}
+
+function wallPositionRatio(point: Point2Mm, start: Point2Mm, end: Point2Mm): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const squaredLength = dx * dx + dy * dy;
+  if (!squaredLength) return 0.5;
+  return Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / squaredLength));
+}
+
+export function reprojectHostedMarkers(
+  markers: readonly MobileCadMarker[],
+  previousVertices: readonly Point2Mm[],
+  nextVertices: readonly Point2Mm[],
+): readonly MobileCadMarker[] {
+  return markers.map((marker) => {
+    const previousStart = previousVertices[marker.wallIndex];
+    const previousEnd = previousVertices[(marker.wallIndex + 1) % previousVertices.length];
+    const nextStart = nextVertices[marker.wallIndex];
+    const nextEnd = nextVertices[(marker.wallIndex + 1) % nextVertices.length];
+    if (!previousStart || !previousEnd || !nextStart || !nextEnd) return marker;
+    const nextLength = edgeLengthMm(nextStart, nextEnd);
+    const edgeRatio = marker.widthMm / 2 / Math.max(nextLength, 1);
+    const ratio = Math.max(
+      marker.kind === "door" || marker.kind === "window" ? Math.min(0.5, edgeRatio) : 0,
+      Math.min(
+        marker.kind === "door" || marker.kind === "window" ? 1 - Math.min(0.5, edgeRatio) : 1,
+        wallPositionRatio(marker.point, previousStart, previousEnd),
+      ),
+    );
+    return {
+      ...marker,
+      point: {
+        x: Math.round(nextStart.x + (nextEnd.x - nextStart.x) * ratio),
+        y: Math.round(nextStart.y + (nextEnd.y - nextStart.y) * ratio),
+      },
+    };
+  });
+}
+
 export function verticesFromSpace(space: BuildingSpace): readonly Point2Mm[] {
   if (space.footprint.kind === "polygon") return space.footprint.vertices;
   return cadTemplates.rectangle(space.footprint.widthMm, space.footprint.depthMm);

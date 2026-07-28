@@ -34,9 +34,22 @@ adaptada a mòbil.
   llarg; les propietats de l'espai s'obren en un panell contextual.
 - La planta mostra vèrtexs editables, permet reubicar components allotjats i
   ofereix controls accessibles d'enquadrament i zoom.
+- Cada mur mostra la longitud en `mm`, es pot seleccionar, redimensionar i
+  conserva els components en la seva posició longitudinal relativa.
+- Les cotes estan ocultes inicialment i es poden activar des d'un únic control;
+  les etiquetes només mostren el valor compacte en `mm`.
+- Vèrtexs i components es poden arrossegar directament amb snap de 50 mm;
+  totes les operacions tenen desfer i refer.
+- Portes i finestres utilitzen símbols arquitectònics en planta, no marcadors
+  genèrics, i les seves dimensions es representen també al visor 3D.
 - El visor 3D representa el mateix contorn, alçada i components, amb controls
-  visibles de rotació, zoom i enquadrament.
+  visibles de rotació, zoom, enquadrament i vistes superior, frontal, lateral i
+  isomètrica.
 - Planta i 3D no mostren cap bàner flotant que tapi el contingut.
+- Tocar una zona buida de la planta cancel·la la selecció i tanca l'inspector.
+- Al 3D, un dit orbita la càmera i una pinça controla el zoom.
+- Els canvis vàlids es desen automàticament després d'un breu període
+  d'inactivitat, mantenint també el botó de desat explícit.
 - Els estats loading, buit, error, brut, guardant i guardat són visibles.
 
 ## Fora d'abast

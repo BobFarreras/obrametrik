@@ -3,7 +3,10 @@ import {
   cadTemplates,
   closestWallPoint,
   documentForSpaceId,
+  edgeLengthMm,
   moveOrthogonalVertex,
+  reprojectHostedMarkers,
+  resizeWall,
   toCadPlan,
   type MobileCadDocument,
 } from "./model";
@@ -49,5 +52,26 @@ describe("mobile CAD model", () => {
       { x: 4600, y: 3000 },
       { x: 0, y: 3000 },
     ]);
+  });
+
+  it("resizes a selected wall in millimetres", () => {
+    const resized = resizeWall(cadTemplates.rectangle(4000, 3000), 0, 5200);
+    expect(resized[1]).toEqual({ x: 5200, y: 0 });
+    expect(edgeLengthMm(resized[0]!, resized[1]!)).toBe(5200);
+  });
+
+  it("keeps hosted components attached when their wall is resized", () => {
+    const previous = cadTemplates.rectangle(4000, 3000);
+    const next = resizeWall(previous, 0, 6000);
+    const marker = {
+      id: "door-1",
+      kind: "door" as const,
+      point: { x: 2000, y: 0 },
+      wallIndex: 0,
+      widthMm: 900,
+      heightMm: 2100,
+      elevationMm: 0,
+    };
+    expect(reprojectHostedMarkers([marker], previous, next)[0]?.point).toEqual({ x: 3000, y: 0 });
   });
 });

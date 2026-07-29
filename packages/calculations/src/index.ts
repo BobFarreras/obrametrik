@@ -2,6 +2,12 @@
  * @file packages/calculations/src/index.ts
  * @description Calculates auditable purchase quantities without AI.
  */
+export * from "./electrical-panel";
+export * from "./electrical-plan-bill";
+export * from "./electrical-project-takeoff";
+export * from "./electrical-takeoff";
+export * from "./electrical-wiring";
+
 export type MeasurementUnit = "m" | "m2" | "m3" | "kg" | "unit";
 export type CalculationResult = {
   netQuantity: number;
@@ -13,6 +19,29 @@ export type CalculationResult = {
   warnings: string[];
   ruleVersion: string;
 };
+export function calculateNetSurfaceArea(input: {
+  widthM: number;
+  heightM: number;
+  adjustments: { widthM: number; heightM: number; operation: "add" | "subtract" }[];
+}) {
+  if (input.widthM <= 0 || input.heightM <= 0) throw new RangeError("Invalid surface dimensions");
+  const grossAreaM2 = input.widthM * input.heightM;
+  const adjustmentAreaM2 = input.adjustments.reduce((total, adjustment) => {
+    if (adjustment.widthM <= 0 || adjustment.heightM <= 0)
+      throw new RangeError("Invalid adjustment dimensions");
+    const signedArea = adjustment.widthM * adjustment.heightM;
+    return total + (adjustment.operation === "add" ? signedArea : -signedArea);
+  }, 0);
+  const netAreaM2 = grossAreaM2 + adjustmentAreaM2;
+  if (netAreaM2 < 0) throw new RangeError("Adjustments exceed gross surface area");
+  return {
+    grossAreaM2,
+    adjustmentAreaM2,
+    netAreaM2,
+    formula: "width × height + Σ(signed adjustment width × height)",
+    ruleVersion: "net-surface-area@1",
+  };
+}
 export function calculatePackagedQuantity(input: {
   netQuantity: number;
   wastePercent: number;

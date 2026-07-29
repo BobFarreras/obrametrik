@@ -2,6 +2,10 @@
  * @file packages/domain/src/index.ts
  * @description Defines framework-independent product concepts.
  */
+export * from "./building-model";
+export * from "./quality-model";
+export * from "./work-model";
+
 export const locales = ["ca", "es", "en"] as const;
 export type Locale = (typeof locales)[number];
 export const projectStatuses = ["draft", "active", "completed", "archived"] as const;
@@ -17,4 +21,30 @@ export type Project = {
   name: string;
   description: string | null;
   status: ProjectStatus;
+};
+export type Room = {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+};
+export type SurfaceKind = "wall" | "floor" | "ceiling" | "other";
+export type Surface = {
+  id: string;
+  roomId: string;
+  name: string;
+  kind: SurfaceKind;
+  widthM: number;
+  heightM: number;
+  grossAreaM2: number;
+};
+export type MeasurementOperation = "add" | "subtract";
+export type SurfaceMeasurement = {
+  id: string;
+  surfaceId: string;
+  label: string;
+  operation: MeasurementOperation;
+  widthM: number;
+  heightM: number;
+  areaM2: number;
 };

@@ -13,8 +13,13 @@
     "test": "vitest run --passWithNoTests",
     "clean": "rimraf dist"
   },
-  "devDependencies": {
+  "dependencies": {
+    "@obrametrik/application": "workspace:*",
     "@obrametrik/domain": "workspace:*",
+    "@supabase/supabase-js": "^2.110.8"
+  },
+  "devDependencies": {
+    "@obrametrik/config-typescript": "workspace:*",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }

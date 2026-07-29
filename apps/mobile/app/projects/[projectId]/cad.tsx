@@ -1,12 +1,15 @@
 import {
+  buildElectricalLayout,
   cadComponentVariants,
   defaultCadComponentVariant,
+  projectElectricalPoint,
   type CadComponentKind,
   type CadComponentVariant,
+  type ElectricalLayout,
 } from "@obrametrik/application";
 import type { Point2Mm } from "@obrametrik/domain";
 import { messages } from "@obrametrik/i18n";
-import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
@@ -43,14 +46,45 @@ import { mobileBuildingModelRepository } from "../../../src/cad/repository";
 import { NativeCad3D } from "../../../src/cad/native-cad-3d";
 import { Button, Field } from "../../../src/components/ui";
 import { getDeviceLocale } from "../../../src/lib/i18n";
+import { supabase } from "../../../src/lib/supabase";
 import { regenerateElectricalMaterials } from "../../../src/materials/electrical-materials";
 import { theme } from "../../../src/theme";
 
 type Shape = keyof typeof cadTemplates;
 type Mode = "2d" | "3d";
 type TechnicalView = "iso" | "top" | "front" | "right";
+type PlanEditorView = "plan" | "wall";
 type ActiveTool = "select" | CadComponentKind;
 type NumericEdit = { label: string; value: number; onCommit: (value: number) => void };
+type ElectricalRouteOverlay = {
+  id: string;
+  spaceId: string;
+  path: readonly Point2Mm[];
+  color?: string;
+};
+const conductorColors = {
+  brown: "#704214",
+  black: "#191919",
+  light_blue: "#1E6FB9",
+  green_yellow: "#278657",
+} as const;
+
+function projectPointToWall(
+  point: { x: number; y: number; z: number },
+  vertices: readonly Point2Mm[],
+  wallIndex: number,
+  clearHeightMm: number,
+): Point2Mm {
+  const start = vertices[wallIndex]!;
+  const end = vertices[(wallIndex + 1) % vertices.length]!;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  return {
+    x: Math.max(0, Math.min(length, ((point.x - start.x) * dx + (point.y - start.y) * dy) / length)),
+    y: clearHeightMm - point.z,
+  };
+}
 const tools: readonly ActiveTool[] = [
   "select",
   "door",
@@ -95,6 +129,8 @@ export default function MobileCadScreen() {
   const [widthMm, setWidthMm] = useState("4000");
   const [depthMm, setDepthMm] = useState("3000");
   const [mode, setMode] = useState<Mode>("2d");
+  const [planView, setPlanView] = useState<PlanEditorView>("plan");
+  const [elevationWallIndex, setElevationWallIndex] = useState(0);
   const [tool, setTool] = useState<ActiveTool>("select");
   const [selectedId, setSelectedId] = useState<string>();
   const [selectedVertex, setSelectedVertex] = useState<number>();
@@ -104,6 +140,8 @@ export default function MobileCadScreen() {
   const [orbit, setOrbit] = useState({ yaw: -42, pitch: 24 });
   const [technicalView, setTechnicalView] = useState<TechnicalView>("iso");
   const [showDimensions, setShowDimensions] = useState(false);
+  const [showElectricalLayer, setShowElectricalLayer] = useState(false);
+  const [electricalRoutes, setElectricalRoutes] = useState<readonly ElectricalRouteOverlay[]>([]);
   const [orthogonal, setOrthogonal] = useState(true);
   const [planPan, setPlanPan] = useState({ x: 0, y: 0 });
   const [numericEdit, setNumericEdit] = useState<NumericEdit>();
@@ -159,6 +197,31 @@ export default function MobileCadScreen() {
     linear: t.variantLinear,
   };
 
+  const loadElectricalRoutes = useCallback(async () => {
+    if (!projectId) return;
+    const routesResult = await supabase
+      .from("electrical_route_segments")
+      .select("id,space_id,path")
+      .eq("project_id", projectId)
+      .eq("status", "confirmed");
+    if (routesResult.error) {
+      setElectricalRoutes([]);
+      return;
+    }
+    setElectricalRoutes(
+      (routesResult.data ?? []).flatMap((route) => {
+        if (!Array.isArray(route.path)) return [];
+        const path = route.path.flatMap((point) =>
+          point && typeof point === "object" && !Array.isArray(point) &&
+          typeof point.x === "number" && typeof point.y === "number"
+            ? [{ x: point.x, y: point.y }]
+            : [],
+        );
+        return path.length >= 2 ? [{ id: route.id, spaceId: route.space_id, path }] : [];
+      }),
+    );
+  }, [projectId]);
+
   const loadModel = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
@@ -168,6 +231,7 @@ export default function MobileCadScreen() {
         mobileBuildingModelRepository.findSpacesByProject(projectId),
         mobileBuildingModelRepository.findElementsByProject(projectId),
       ]);
+      await loadElectricalRoutes();
       if (spaceId) {
         const loaded = documentForSpaceId(spaces, elements, spaceId);
         const xs = loaded.vertices.map((point) => point.x);
@@ -190,17 +254,72 @@ export default function MobileCadScreen() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, spaceId]);
+  }, [loadElectricalRoutes, projectId, spaceId]);
 
   useEffect(() => {
     if (user) void loadModel();
   }, [loadModel, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user) void loadElectricalRoutes();
+    }, [loadElectricalRoutes, user]),
+  );
 
   const selected = document.markers.find((marker) => marker.id === selectedId);
   const bounds = useMemo(() => modelBounds(document.vertices), [document.vertices]);
   const viewport = useMemo(
     () => createViewport(bounds, stageLayout.width, stageLayout.height, zoom, planPan),
     [bounds, planPan, stageLayout, zoom],
+  );
+  const electricalLayout = useMemo(
+    () =>
+      buildElectricalLayout({
+        clearHeightMm: document.clearHeightMm,
+        terminals: document.markers.flatMap((marker) =>
+          marker.kind === "light" || marker.kind === "switch" || marker.kind === "socket"
+            ? [{
+                id: marker.id,
+                kind: marker.kind,
+                point: marker.point,
+                elevationMm:
+                  marker.placementSurface === "ceiling"
+                    ? document.clearHeightMm
+                    : marker.elevationMm,
+              }]
+            : [],
+        ),
+        vertices: document.vertices,
+      }),
+    [document.clearHeightMm, document.markers, document.vertices],
+  );
+  const projectedElectricalRoutes = useMemo(
+    () =>
+      electricalLayout.runs.flatMap((run) =>
+        run.conductors.map((conductor) => ({
+          id: `${run.id}-${conductor.role}`,
+          spaceId: document.spaceId ?? "preview",
+          path: run.path.map((point) =>
+            planView === "plan"
+              ? projectElectricalPoint(point, "plan", document.clearHeightMm)
+              : projectPointToWall(
+                  point,
+                  document.vertices,
+                  elevationWallIndex,
+                  document.clearHeightMm,
+                ),
+          ),
+          color: conductorColors[conductor.color],
+        })),
+      ),
+    [
+      document.clearHeightMm,
+      document.spaceId,
+      document.vertices,
+      electricalLayout.runs,
+      elevationWallIndex,
+      planView,
+    ],
   );
 
   function capturePlanTouches(event: {
@@ -311,7 +430,9 @@ export default function MobileCadScreen() {
       vertices,
       markers: current.markers.map((marker) => ({
         ...marker,
-        ...closestWallPoint(vertices, marker.point, marker.widthMm),
+        ...(marker.placementSurface === "ceiling" || marker.placementSurface === "floor"
+          ? {}
+          : closestWallPoint(vertices, marker.point, marker.widthMm)),
       })),
     }));
   }
@@ -329,11 +450,16 @@ export default function MobileCadScreen() {
 
   function placeMarkerAt(modelPoint: Point2Mm) {
     if (tool === "select") return;
-    const hosted = closestWallPoint(document.vertices, modelPoint, componentDefaults[tool].widthMm);
+    const placementSurface = tool === "light" ? "ceiling" : "wall";
+    const hosted =
+      placementSurface === "wall"
+        ? closestWallPoint(document.vertices, modelPoint, componentDefaults[tool].widthMm)
+        : { point: { x: Math.round(modelPoint.x), y: Math.round(modelPoint.y) }, wallIndex: 0 };
     const marker: MobileCadMarker = {
       id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       kind: tool,
       ...hosted,
+      placementSurface,
       ...componentDefaults[tool],
       variant: defaultCadComponentVariant(tool),
       ...(tool === "door" ? { swing: "left_in" as const } : {}),
@@ -403,28 +529,13 @@ export default function MobileCadScreen() {
     >
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <Pressable
+          accessibilityLabel={t.plans}
           accessibilityRole="button"
           onPress={() => router.back()}
-          style={styles.headerButton}
+          style={styles.headerAction}
         >
-          <Text style={styles.headerButtonText}>‹</Text>
+          <Text numberOfLines={1} style={styles.headerActionText}>{t.plans}</Text>
         </Pressable>
-        <View style={styles.headerIdentity}>
-          <Text numberOfLines={1} style={styles.headerTitle}>
-            {document.name || t.unsavedPlan}
-          </Text>
-          <Text accessibilityLiveRegion="polite" style={styles.saveStatus}>
-            {saveState === "saving"
-              ? t.savingPlan
-              : saveState === "dirty"
-                ? t.savePending
-                : errorKind === "load"
-                  ? t.mobileCadLoadError
-                  : errorKind === "save"
-                    ? t.mobileCadSaveError
-                    : t.planSaved}
-          </Text>
-        </View>
         <Pressable
           accessibilityLabel={t.materialsAndShopping}
           accessibilityRole="button"
@@ -434,13 +545,14 @@ export default function MobileCadScreen() {
               params: { projectId },
             })
           }
-          style={styles.materialsButton}
+          style={styles.headerAction}
         >
-          <Text style={styles.materialsButtonGlyph}>▤</Text>
+          <Text numberOfLines={1} style={styles.headerActionText}>{t.materialsAndShopping}</Text>
         </Pressable>
         <Pressable
           accessibilityLabel={t.savePlan}
           accessibilityRole="button"
+          accessibilityState={{ busy: saveState === "saving" }}
           disabled={saveState === "saving" || !document.name.trim()}
           onPress={() => void save()}
           style={[
@@ -448,7 +560,11 @@ export default function MobileCadScreen() {
             (!document.name.trim() || saveState === "saving") && styles.disabled,
           ]}
         >
-          <Text style={styles.saveButtonText}>✓</Text>
+          {saveState === "saving" ? (
+            <ActivityIndicator color={theme.colors.ink} size="small" />
+          ) : (
+            <Text numberOfLines={1} style={styles.saveButtonText}>{t.savePlan}</Text>
+          )}
         </Pressable>
       </View>
 
@@ -468,6 +584,15 @@ export default function MobileCadScreen() {
             </Pressable>
           ))}
         </View>
+        <Pressable
+          accessibilityLabel={t.electricalCircuits}
+          accessibilityRole="button"
+          accessibilityState={{ selected: showElectricalLayer }}
+          onPress={() => setShowElectricalLayer((current) => !current)}
+          style={[styles.historyButton, showElectricalLayer && styles.electricalLayerButton]}
+        >
+          <Text style={styles.historyText}>⚡</Text>
+        </Pressable>
         <Pressable
           accessibilityLabel={t.undo}
           accessibilityRole="button"
@@ -549,7 +674,7 @@ export default function MobileCadScreen() {
               <Text style={styles.retryText}>{t.retry}</Text>
             </Pressable>
           </View>
-        ) : mode === "2d" ? (
+        ) : mode === "2d" && planView === "plan" ? (
           <Pressable
             accessibilityHint={t.mobileCadTapHint}
             accessibilityLabel={t.mode2d}
@@ -565,6 +690,11 @@ export default function MobileCadScreen() {
             style={styles.stage}
           >
             <PlanCanvas
+              electricalRoutes={showElectricalLayer
+                ? electricalRoutes.some((route) => route.spaceId === document.spaceId)
+                  ? electricalRoutes.filter((route) => route.spaceId === document.spaceId)
+                  : projectedElectricalRoutes
+                : []}
               markers={document.markers}
               onSelect={(id) => {
                 setSelectedId(id);
@@ -609,7 +739,10 @@ export default function MobileCadScreen() {
                       marker.id === id
                         ? {
                             ...marker,
-                            ...closestWallPoint(current.vertices, point, marker.widthMm),
+                            ...(marker.placementSurface === "ceiling" ||
+                            marker.placementSurface === "floor"
+                              ? { point: { x: Math.round(point.x), y: Math.round(point.y) } }
+                              : closestWallPoint(current.vertices, point, marker.widthMm)),
                           }
                         : marker,
                     ),
@@ -671,6 +804,20 @@ export default function MobileCadScreen() {
               viewport={viewport}
             />
           </Pressable>
+        ) : mode === "2d" ? (
+          <View style={styles.stage}>
+            <ElectricalElevationCanvas
+              clearHeightMm={document.clearHeightMm}
+              layout={electricalLayout}
+              markers={document.markers}
+              onSelect={setSelectedId}
+              selectedId={selectedId}
+              showElectricalLayer={showElectricalLayer}
+              stageLayout={stageLayout}
+              vertices={document.vertices}
+              wallIndex={elevationWallIndex}
+            />
+          </View>
         ) : (
           <NativeCad3D
             clearHeightMm={document.clearHeightMm}
@@ -755,6 +902,82 @@ export default function MobileCadScreen() {
             ⚙
           </CanvasButton>
         </View>
+        {mode === "2d" ? (
+          <View style={styles.viewBar}>
+            {([
+              ["plan", t.viewTop],
+              ["wall", t.viewElevation],
+            ] as const).map(([view, label]) => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: planView === view }}
+                key={view}
+                onPress={() => {
+                  setPlanView(view);
+                  setZoom(1);
+                  setPlanPan({ x: 0, y: 0 });
+                }}
+                style={[styles.viewButton, planView === view && styles.viewButtonActive]}
+              >
+                <Text style={[
+                  styles.viewButtonText,
+                  planView === view && styles.viewButtonTextActive,
+                ]}>
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        {mode === "2d" && planView === "wall" ? (
+          <View style={styles.wallBar}>
+            <Pressable
+              accessibilityLabel={t.previousWall}
+              accessibilityRole="button"
+              onPress={() =>
+                setElevationWallIndex(
+                  (current) => (current - 1 + document.vertices.length) % document.vertices.length,
+                )
+              }
+              style={styles.wallArrow}
+            >
+              <Text style={styles.wallArrowText}>‹</Text>
+            </Pressable>
+            <ScrollView
+              horizontal
+              contentContainerStyle={styles.wallTabs}
+              showsHorizontalScrollIndicator={false}
+            >
+              {document.vertices.map((start, index) => (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: elevationWallIndex === index }}
+                  key={`wall-${index}`}
+                  onPress={() => setElevationWallIndex(index)}
+                  style={[
+                    styles.wallTab,
+                    elevationWallIndex === index && styles.wallTabActive,
+                  ]}
+                >
+                  <Text style={styles.wallTabTitle}>W{index + 1}</Text>
+                  <Text style={styles.wallTabMeta}>
+                    {edgeLengthMm(start, document.vertices[(index + 1) % document.vertices.length]!)} mm
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable
+              accessibilityLabel={t.nextWall}
+              accessibilityRole="button"
+              onPress={() =>
+                setElevationWallIndex((current) => (current + 1) % document.vertices.length)
+              }
+              style={styles.wallArrow}
+            >
+              <Text style={styles.wallArrowText}>›</Text>
+            </Pressable>
+          </View>
+        ) : null}
         {mode === "3d" ? (
           <View style={styles.viewBar}>
             {(
@@ -1089,6 +1312,7 @@ function createViewport(
 }
 
 function PlanCanvas({
+  electricalRoutes,
   markers,
   onMoveMarker,
   onMoveStart,
@@ -1105,6 +1329,7 @@ function PlanCanvas({
   vertices,
   viewport,
 }: {
+  electricalRoutes: readonly ElectricalRouteOverlay[];
   markers: readonly MobileCadMarker[];
   onMoveMarker: (id: string, point: Point2Mm) => void;
   onMoveStart: () => void;
@@ -1124,6 +1349,17 @@ function PlanCanvas({
   const selectedMarker = markers.find((marker) => marker.id === selectedId);
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      {electricalRoutes.map((route) =>
+        route.path.slice(1).map((point, index) => (
+          <PlanLine
+            a={viewport.toScreen(route.path[index]!)}
+            b={viewport.toScreen(point)}
+            color={route.color}
+            key={`${route.id}-${index}`}
+            selected
+          />
+        )),
+      )}
       {vertices.map((start, index) => {
         const a = viewport.toScreen(start);
         const b = viewport.toScreen(vertices[(index + 1) % vertices.length]!);
@@ -1230,6 +1466,141 @@ function PlanCanvas({
       {selectedMarker && (selectedMarker.kind === "door" || selectedMarker.kind === "window") ? (
         <OpeningDimensions marker={selectedMarker} vertices={vertices} viewport={viewport} />
       ) : null}
+    </View>
+  );
+}
+
+function ElectricalElevationCanvas({
+  clearHeightMm,
+  layout,
+  markers,
+  onSelect,
+  selectedId,
+  showElectricalLayer,
+  stageLayout,
+  vertices,
+  wallIndex,
+}: {
+  clearHeightMm: number;
+  layout: ElectricalLayout;
+  markers: readonly MobileCadMarker[];
+  onSelect: (id: string) => void;
+  selectedId?: string;
+  showElectricalLayer: boolean;
+  stageLayout: { width: number; height: number };
+  vertices: readonly Point2Mm[];
+  wallIndex: number;
+}) {
+  const projectedTerminals = layout.terminals.flatMap((terminal) => {
+    const marker = markers.find((candidate) => candidate.id === terminal.id);
+    if (!marker || (marker.kind !== "light" && marker.wallIndex !== wallIndex)) return [];
+    return [{
+      ...terminal,
+      projected: projectPointToWall(
+        { x: terminal.point.x, y: terminal.point.y, z: terminal.elevationMm },
+        vertices,
+        wallIndex,
+        clearHeightMm,
+      ),
+    }];
+  });
+  const horizontal = [
+    ...projectedTerminals.map((terminal) => terminal.projected.x),
+    ...layout.junctionBoxes.map((box) =>
+      projectPointToWall(
+        { x: box.point.x, y: box.point.y, z: box.elevationMm },
+        vertices,
+        wallIndex,
+        clearHeightMm,
+      ).x,
+    ),
+  ];
+  const minimum = horizontal.length ? Math.min(...horizontal, 0) : 0;
+  const maximum = horizontal.length ? Math.max(...horizontal, 3000) : 3000;
+  const elevationVertices = [
+    { x: minimum - 400, y: -250 },
+    { x: maximum + 400, y: -250 },
+    { x: maximum + 400, y: clearHeightMm + 250 },
+    { x: minimum - 400, y: clearHeightMm + 250 },
+  ];
+  const elevationViewport = createViewport(
+    modelBounds(elevationVertices),
+    stageLayout.width,
+    stageLayout.height,
+    1,
+    { x: 0, y: 0 },
+  );
+  const floorStart = elevationViewport.toScreen({ x: minimum - 400, y: clearHeightMm });
+  const floorEnd = elevationViewport.toScreen({ x: maximum + 400, y: clearHeightMm });
+  const ceilingStart = elevationViewport.toScreen({ x: minimum - 400, y: 0 });
+  const ceilingEnd = elevationViewport.toScreen({ x: maximum + 400, y: 0 });
+
+  return (
+    <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+      <PlanLine a={floorStart} b={floorEnd} color={theme.colors.brand} />
+      <PlanLine a={ceilingStart} b={ceilingEnd} color={theme.colors.muted} />
+      {showElectricalLayer
+        ? layout.runs.flatMap((run) => {
+            const marker = markers.find((candidate) => candidate.id === run.terminalId);
+            if (marker && marker.kind !== "light" && marker.wallIndex !== wallIndex) return [];
+            return run.conductors.flatMap((conductor, conductorIndex) => {
+              const points = run.path.map((point) => {
+                const projected = elevationViewport.toScreen(
+                  projectPointToWall(point, vertices, wallIndex, clearHeightMm),
+                );
+                return { x: projected.x, y: projected.y + conductorIndex * 4 };
+              });
+              return points.slice(1).map((point, index) => (
+                <PlanLine
+                  a={points[index]!}
+                  b={point}
+                  color={conductorColors[conductor.color]}
+                  key={`${run.id}-${conductor.role}-${index}`}
+                />
+              ));
+            });
+          })
+        : null}
+      {showElectricalLayer
+        ? layout.junctionBoxes.map((box) => {
+            const point = elevationViewport.toScreen(
+              projectPointToWall(
+                { x: box.point.x, y: box.point.y, z: box.elevationMm },
+                vertices,
+                wallIndex,
+                clearHeightMm,
+              ),
+            );
+            return (
+              <View
+                key={box.id}
+                style={[styles.junctionBox, { left: point.x - 22, top: point.y - 22 }]}
+              >
+                <Text style={styles.junctionBoxText}>{box.circuitCode}</Text>
+              </View>
+            );
+          })
+        : null}
+      {projectedTerminals.map((terminal) => {
+        const marker = markers.find((candidate) => candidate.id === terminal.id);
+        const point = elevationViewport.toScreen(terminal.projected);
+        return (
+          <Pressable
+            accessibilityLabel={`${marker?.kind ?? terminal.kind} · ${terminal.elevationMm} mm`}
+            accessibilityRole="button"
+            key={terminal.id}
+            onPress={() => onSelect(terminal.id)}
+            style={[
+              styles.elevationTerminal,
+              selectedId === terminal.id && styles.elevationTerminalSelected,
+              { left: point.x - 32, top: point.y - 32 },
+            ]}
+          >
+            <Text style={styles.elevationTerminalGlyph}>{toolGlyphs[terminal.kind]}</Text>
+            <Text style={styles.elevationTerminalLabel}>{terminal.elevationMm} mm</Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -1448,7 +1819,17 @@ function CadSymbol2D({ marker }: { marker: MobileCadMarker }) {
   );
 }
 
-function PlanLine({ a, b, selected = false }: { a: Point2Mm; b: Point2Mm; selected?: boolean }) {
+function PlanLine({
+  a,
+  b,
+  color,
+  selected = false,
+}: {
+  a: Point2Mm;
+  b: Point2Mm;
+  color?: string;
+  selected?: boolean;
+}) {
   const length = Math.hypot(b.x - a.x, b.y - a.y);
   const angle = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
   return (
@@ -1456,6 +1837,7 @@ function PlanLine({ a, b, selected = false }: { a: Point2Mm; b: Point2Mm; select
       style={[
         styles.wall,
         selected && styles.wallSelected,
+        color ? { backgroundColor: color } : null,
         {
           left: (a.x + b.x - length) / 2,
           top: (a.y + b.y) / 2 - 3,
@@ -1581,36 +1963,29 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: 16,
   },
-  headerButton: {
+  headerAction: {
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,.12)",
-    borderRadius: 22,
+    borderRadius: 18,
+    flex: 1,
     height: 44,
     justifyContent: "center",
-    width: 44,
+    minWidth: 0,
+    paddingHorizontal: 9,
   },
-  headerButtonText: { color: theme.colors.surface, fontSize: 34, lineHeight: 38 },
-  headerIdentity: { flex: 1 },
-  headerTitle: { color: theme.colors.surface, fontSize: 17, fontWeight: "800" },
-  materialsButton: {
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,.12)",
-    borderRadius: 22,
-    height: 44,
-    justifyContent: "center",
-    width: 44,
-  },
-  materialsButtonGlyph: { color: theme.colors.surface, fontSize: 22, fontWeight: "800" },
-  saveStatus: { color: "#CFE0DD", fontSize: 11, marginTop: 2 },
+  headerActionText: { color: theme.colors.surface, fontSize: 12, fontWeight: "800" },
+  electricalLayerButton: { backgroundColor: theme.colors.accent },
   saveButton: {
     alignItems: "center",
     backgroundColor: theme.colors.accent,
-    borderRadius: 22,
+    borderRadius: 18,
+    flex: 1,
     height: 44,
     justifyContent: "center",
-    width: 44,
+    minWidth: 0,
+    paddingHorizontal: 9,
   },
-  saveButtonText: { color: theme.colors.ink, fontSize: 22, fontWeight: "800" },
+  saveButtonText: { color: theme.colors.ink, fontSize: 12, fontWeight: "800" },
   disabled: { opacity: 0.45 },
   modeBar: {
     alignItems: "center",
@@ -1640,6 +2015,32 @@ const styles = StyleSheet.create({
     width: 42,
   },
   historyText: { color: theme.colors.surface, fontSize: 21, fontWeight: "800" },
+  junctionBox: {
+    alignItems: "center",
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.accent,
+    borderRadius: 10,
+    borderWidth: 4,
+    height: 44,
+    justifyContent: "center",
+    position: "absolute",
+    width: 44,
+  },
+  junctionBoxText: { color: theme.colors.ink, fontSize: 11, fontWeight: "900" },
+  elevationTerminal: {
+    alignItems: "center",
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.brand,
+    borderRadius: 28,
+    borderWidth: 3,
+    height: 64,
+    justifyContent: "center",
+    position: "absolute",
+    width: 64,
+  },
+  elevationTerminalSelected: { borderColor: theme.colors.accent, borderWidth: 5 },
+  elevationTerminalGlyph: { color: theme.colors.ink, fontSize: 19, fontWeight: "900" },
+  elevationTerminalLabel: { color: theme.colors.muted, fontSize: 8, fontWeight: "800" },
   tools: { backgroundColor: theme.colors.surface, flexGrow: 0, maxHeight: 82 },
   toolContent: { gap: 7, padding: 8 },
   tool: {
@@ -1858,6 +2259,41 @@ const styles = StyleSheet.create({
   viewButtonActive: { backgroundColor: theme.colors.brand },
   viewButtonText: { color: theme.colors.brand, fontSize: 10, fontWeight: "800" },
   viewButtonTextActive: { color: theme.colors.surface },
+  wallBar: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,.96)",
+    borderRadius: 16,
+    flexDirection: "row",
+    gap: 6,
+    left: 12,
+    padding: 6,
+    position: "absolute",
+    right: 12,
+    top: 70,
+  },
+  wallArrow: {
+    alignItems: "center",
+    backgroundColor: theme.colors.brand,
+    borderRadius: 12,
+    height: 46,
+    justifyContent: "center",
+    width: 42,
+  },
+  wallArrowText: { color: theme.colors.surface, fontSize: 28, fontWeight: "900" },
+  wallTabs: { gap: 6 },
+  wallTab: {
+    backgroundColor: theme.colors.canvas,
+    borderColor: "transparent",
+    borderRadius: 12,
+    borderWidth: 2,
+    minHeight: 46,
+    minWidth: 76,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  wallTabActive: { backgroundColor: "#FFF7E9", borderColor: theme.colors.accent },
+  wallTabTitle: { color: theme.colors.ink, fontSize: 12, fontWeight: "900" },
+  wallTabMeta: { color: theme.colors.muted, fontSize: 9, fontWeight: "700" },
   form: { gap: 14, paddingBottom: 8, paddingHorizontal: 18 },
   shapeRow: { flexDirection: "row", gap: 8, marginTop: 8 },
   shape: {

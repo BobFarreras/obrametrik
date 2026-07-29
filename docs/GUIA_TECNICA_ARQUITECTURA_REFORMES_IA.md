@@ -622,6 +622,18 @@ Les implementacions poden utilitzar Supabase o altres serveis sense contaminar e
 
 Cap quantitat crítica s’ha de calcular exclusivament amb un LLM.
 
+### Vertical elèctric implementat
+
+El primer vertical operatiu separa el model espacial pur, l'orquestració
+d'aplicació, el motor de càlcul, la persistència Supabase i les adaptacions web
+i mòbil. La proposta automàtica és determinista i editable; l'escandall només
+considera geometria i dades confirmades i conserva regles, fórmules i entitats
+d'origen.
+
+El mapa de dependències, taules, punts d'entrada, proves i limitacions vigents
+es manté a
+`docs/features/electrical-takeoff-engine/IMPLEMENTATION.md`.
+
 ### Entrada tipada
 
 ```ts

@@ -1,11 +1,38 @@
-import { GenerateElectricalPlanBillUseCase } from "@obrametrik/application";
+import {
+  buildElectricalProjectCircuits,
+  GenerateElectricalPlanBillUseCase,
+  GenerateElectricalProjectTakeoffUseCase,
+} from "@obrametrik/application";
 import type { Json } from "@obrametrik/database";
 import { mobileBuildingModelRepository } from "../cad/repository";
 import { supabase } from "../lib/supabase";
 
 export async function regenerateElectricalMaterials(projectId: string): Promise<void> {
   const elements = await mobileBuildingModelRepository.findElementsByProject(projectId);
-  const result = new GenerateElectricalPlanBillUseCase().execute(elements);
+  const [circuitsResult, assignmentsResult, segmentsResult] = await Promise.all([
+    supabase.from("electrical_circuits").select("id,code,status").eq("project_id", projectId),
+    supabase
+      .from("electrical_circuit_terminals")
+      .select("circuit_id,terminal_element_id")
+      .eq("project_id", projectId),
+    supabase
+      .from("electrical_route_segments")
+      .select(
+        "id,circuit_id,length_mm,conductor_configuration,conduit_system,conduit_diameter_mm,status",
+      )
+      .eq("project_id", projectId),
+  ]);
+  const result =
+    !circuitsResult.error && !assignmentsResult.error && !segmentsResult.error
+      ? new GenerateElectricalProjectTakeoffUseCase().execute({
+          elements,
+          circuits: buildElectricalProjectCircuits({
+            circuits: circuitsResult.data,
+            assignments: assignmentsResult.data,
+            segments: segmentsResult.data,
+          }),
+        })
+      : new GenerateElectricalPlanBillUseCase().execute(elements);
   const { error } = await supabase.rpc("save_electrical_takeoff", {
     p_project_id: projectId,
     p_status: result.status,

@@ -27,6 +27,7 @@ export type ElectricalTakeoffInput = {
     sourceEntityIds: string[];
     conductors: {
       function: ConductorFunction;
+      color?: string;
       sectionMm2: number;
       count: number;
     }[];
@@ -284,6 +285,7 @@ export function calculateElectricalTakeoff(input: ElectricalTakeoffInput): Elect
     string,
     {
       function: ConductorFunction;
+      color?: string;
       sectionMm2: number;
       measuredQuantity: number;
       sourceEntityIds: string[];
@@ -302,9 +304,10 @@ export function calculateElectricalTakeoff(input: ElectricalTakeoffInput): Elect
   for (const segment of input.segments) {
     const segmentLengthM = segment.lengthMm / 1000;
     for (const conductor of segment.conductors) {
-      const key = `${conductor.function}:${conductor.sectionMm2}`;
+      const key = `${conductor.function}:${conductor.color ?? "unconfirmed"}:${conductor.sectionMm2}`;
       const group = conductorGroups.get(key) ?? {
         function: conductor.function,
+        ...(conductor.color ? { color: conductor.color } : {}),
         sectionMm2: conductor.sectionMm2,
         measuredQuantity: 0,
         sourceEntityIds: [input.circuit.id],
@@ -332,7 +335,11 @@ export function calculateElectricalTakeoff(input: ElectricalTakeoffInput): Elect
   const conductorLines = [...conductorGroups.values()].map((group) =>
     makeLine({
       categoryId: "electrical.conductor",
-      specification: { function: group.function, sectionMm2: group.sectionMm2 },
+      specification: {
+        function: group.function,
+        ...(group.color ? { color: group.color } : {}),
+        sectionMm2: group.sectionMm2,
+      },
       measuredQuantity: group.measuredQuantity,
       reserveQuantity: input.purchase.conductorReserveM,
       sourceEntityIds: group.sourceEntityIds,

@@ -106,7 +106,8 @@ export const cadSpacePlanSchema = z.object({
           "drain",
         ]),
         point: point2MmSchema,
-        wallIndex: z.number().int().min(0).max(999),
+        wallIndex: z.number().int().min(0).max(999).optional(),
+        placementSurface: z.enum(["wall", "ceiling", "floor"]).optional(),
         widthMm: z.number().int().min(20).max(20_000).optional(),
         heightMm: z.number().int().min(20).max(20_000).optional(),
         elevationMm: z.number().int().min(0).max(20_000).optional(),
@@ -140,6 +141,25 @@ export const cadSpacePlanSchema = z.object({
       }),
     )
     .max(1000),
+});
+export const electricalCircuitSchema = z.object({
+  projectId: uuidSchema,
+  name: z.string().trim().min(1).max(100),
+  code: z.enum(["C1", "C2", "C3", "C4", "C5", "C10", "C11"]),
+});
+export const electricalRouteSchema = z.object({
+  projectId: uuidSchema,
+  circuitId: uuidSchema,
+  spaceId: uuidSchema,
+  role: z.enum([
+    "distribution",
+    "light_feed",
+    "switch_feed",
+    "switch_return",
+    "travellers",
+    "control",
+  ]),
+  points: z.array(point2MmSchema).min(2).max(100),
 });
 export const publicWebEnvironmentSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.url(),

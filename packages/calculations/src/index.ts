@@ -4,7 +4,9 @@
  */
 export * from "./electrical-panel";
 export * from "./electrical-plan-bill";
+export * from "./electrical-project-takeoff";
 export * from "./electrical-takeoff";
+export * from "./electrical-wiring";
 
 export type MeasurementUnit = "m" | "m2" | "m3" | "kg" | "unit";
 export type CalculationResult = {

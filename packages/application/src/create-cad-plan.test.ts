@@ -53,7 +53,7 @@ describe("CreateCadPlanUseCase", () => {
         kind: "terminal",
         hostElementId: "element-1",
         dimensionsMm: { width: 100, height: 100, depth: 50 },
-        specification: { source: "cad", terminalKind: "socket" },
+        specification: { source: "cad", terminalKind: "socket", placementSurface: "wall" },
       }),
     );
   });
@@ -107,11 +107,59 @@ describe("CreateCadPlanUseCase", () => {
     expect(createdElements[4]?.specification).toEqual({
       source: "cad",
       terminalKind: "hot_water",
+      placementSurface: "wall",
     });
     expect(createdElements[4]?.transform.position.z).toBe(600);
     expect(createdElements[5]?.specification).toEqual({
       source: "cad",
       terminalKind: "drain",
+      placementSurface: "wall",
+    });
+  });
+
+  it("persists a ceiling light at a free plan point without a wall host", async () => {
+    const createdElements: BuildingElementDraft[] = [];
+    const repository = {
+      ensureDefaultLevel: vi.fn().mockResolvedValue({ id: "level-1", projectId: "project-1" }),
+      createSpace: vi.fn().mockImplementation(async (draft) => ({
+        id: "space-1",
+        levelId: "level-1",
+        ...draft,
+      })),
+      createElement: vi.fn(async (draft: BuildingElementDraft): Promise<BuildingElement> => {
+        createdElements.push(draft);
+        return { id: `element-${createdElements.length}`, ...draft };
+      }),
+    };
+
+    await new CreateCadPlanUseCase(repository).execute({
+      projectId: "project-1",
+      name: "Sala",
+      kind: "living_room",
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 4000, y: 0 },
+        { x: 4000, y: 3000 },
+        { x: 0, y: 3000 },
+      ],
+      clearHeightMm: 2600,
+      components: [{
+        kind: "light",
+        point: { x: 2000, y: 1500 },
+        placementSurface: "ceiling",
+        variant: "ceiling",
+      }],
+    });
+
+    expect(createdElements[4]).toMatchObject({
+      hostElementId: null,
+      hostFace: null,
+      transform: { position: { x: 2000, y: 1500, z: 2400 } },
+      specification: {
+        terminalKind: "light",
+        placementSurface: "ceiling",
+        componentVariant: "ceiling",
+      },
     });
   });
 

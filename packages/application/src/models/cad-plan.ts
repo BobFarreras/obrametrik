@@ -4,6 +4,7 @@ export type CadComponentKind =
   "door" | "window" | "light" | "switch" | "socket" | "cold_water" | "hot_water" | "drain";
 
 export type DoorSwing = "left_in" | "right_in" | "left_out" | "right_out";
+export type CadPlacementSurface = "wall" | "ceiling" | "floor";
 
 export const cadComponentVariants = {
   door: ["hinged", "sliding", "pocket", "folding", "double_hinged"],
@@ -33,7 +34,8 @@ export function isCadComponentVariant(
 export type CadComponentDraft = Readonly<{
   kind: CadComponentKind;
   point: Point2Mm;
-  wallIndex: number;
+  wallIndex?: number | undefined;
+  placementSurface?: CadPlacementSurface | undefined;
   widthMm?: number | undefined;
   heightMm?: number | undefined;
   elevationMm?: number | undefined;

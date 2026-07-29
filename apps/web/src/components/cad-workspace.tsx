@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  buildElectricalLayout,
+  projectElectricalPoint,
+} from "@obrametrik/application";
 import type { BuildingElement, BuildingSpace, Point2Mm, SpaceKind } from "@obrametrik/domain";
 import { useRouter } from "next/navigation";
 import React from "react";
@@ -11,7 +15,10 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { saveCadSpace } from "../app/[locale]/dashboard/projects/[projectId]/actions";
+import {
+  generateElectricalProposal,
+  saveCadSpace,
+} from "../app/[locale]/dashboard/projects/[projectId]/actions";
 import {
   doorLeafCorners,
   findInteriorPoint,
@@ -32,6 +39,7 @@ type ComponentKind =
   "door" | "window" | "light" | "switch" | "socket" | "cold_water" | "hot_water" | "drain";
 type Tool = "select" | "draw" | ComponentKind;
 type Template = "rectangle" | "l_shape" | "u_shape";
+type PlanEditorView = "plan" | "wall";
 type ViewBox = { x: number; y: number; width: number; height: number };
 type SelectionBox = { start: Point2Mm; current: Point2Mm };
 type Marker = {
@@ -39,11 +47,51 @@ type Marker = {
   kind: ComponentKind;
   point: Point2Mm;
   wallIndex: number;
+  placementSurface: "wall" | "ceiling" | "floor";
   widthMm: number;
   heightMm: number;
   elevationMm: number;
   variant: string;
 };
+export type ElectricalRouteOverlay = Readonly<{
+  id: string;
+  spaceId: string;
+  path: readonly Point2Mm[];
+  role: string;
+  color?: string;
+  dashPattern?: string;
+  dashOffset?: number;
+}>;
+
+const electricalWireColors = {
+  distribution: "#1e6fb9",
+  switch_feed: "#704214",
+  switch_return: "#191919",
+} as const;
+
+const conductorColors = {
+  brown: "#704214",
+  black: "#191919",
+  light_blue: "#1e6fb9",
+  green_yellow: "#278657",
+} as const;
+
+function projectPointToWall(
+  point: { x: number; y: number; z: number },
+  vertices: readonly Point2Mm[],
+  wallIndex: number,
+  clearHeightMm: number,
+): Point2Mm {
+  const start = vertices[wallIndex]!;
+  const end = vertices[(wallIndex + 1) % vertices.length]!;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  return {
+    x: Math.max(0, Math.min(length, ((point.x - start.x) * dx + (point.y - start.y) * dy) / length)),
+    y: clearHeightMm - point.z,
+  };
+}
 type CadDocumentSnapshot = {
   vertices: readonly Point2Mm[];
   height: number;
@@ -121,6 +169,7 @@ type CadMessages = {
   savingPlan: string;
   planSaved: string;
   saveFailed: string;
+  electricalCircuits?: string;
   undo: string;
   redo: string;
   copyComponents: string;
@@ -1092,6 +1141,7 @@ export function CadWorkspace({
   projectDescription,
   spaces,
   elements,
+  electricalRoutes = [],
   messages,
 }: {
   locale: string;
@@ -1100,6 +1150,7 @@ export function CadWorkspace({
   projectDescription?: string | null;
   spaces: readonly BuildingSpace[];
   elements: readonly BuildingElement[];
+  electricalRoutes?: readonly ElectricalRouteOverlay[];
   messages: CadMessages;
 }) {
   const router = useRouter();
@@ -1109,6 +1160,8 @@ export function CadWorkspace({
   const [name, setName] = useState(messages.unsavedPlan);
   const [kind, setKind] = useState<SpaceKind>("bathroom");
   const [mode, setMode] = useState<"2d" | "3d">("2d");
+  const [planView, setPlanView] = useState<PlanEditorView>("plan");
+  const [elevationWallIndex, setElevationWallIndex] = useState(0);
   const [tool, setTool] = useState<Tool>("select");
   const [activeVertex, setActiveVertex] = useState<number | null>(null);
   const [activeMarker, setActiveMarker] = useState<string | null>(null);
@@ -1116,6 +1169,7 @@ export function CadWorkspace({
   const [markers, setMarkers] = useState<readonly Marker[]>([]);
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"clean" | "dirty" | "saving" | "error">("clean");
+  const [generatingElectrical, setGeneratingElectrical] = useState(false);
   const [historyAvailability, setHistoryAvailability] = useState({
     canUndo: false,
     canRedo: false,
@@ -1133,9 +1187,92 @@ export function CadWorkspace({
   const [orthogonalConstraint, setOrthogonalConstraint] = useState(true);
   const [drawingVertices, setDrawingVertices] = useState<readonly Point2Mm[] | null>(null);
   const [drawingError, setDrawingError] = useState<string | null>(null);
+  const [showElectricalLayer, setShowElectricalLayer] = useState(false);
   const panStart = useRef<{ x: number; y: number; viewBox: ViewBox } | null>(null);
   const dragCheckpointRef = useRef(false);
   const area = useMemo(() => polygonArea(vertices), [vertices]);
+  const electricalLayout = useMemo(
+    () =>
+      buildElectricalLayout({
+        clearHeightMm: height,
+        terminals: markers.flatMap((marker) =>
+          marker.kind === "light" || marker.kind === "switch" || marker.kind === "socket"
+            ? [{
+                id: marker.id,
+                kind: marker.kind,
+                point: marker.point,
+                elevationMm: marker.placementSurface === "ceiling" ? height : marker.elevationMm,
+              }]
+            : [],
+        ),
+        vertices,
+      }),
+    [height, markers, vertices],
+  );
+  const projectedElectricalRoutes = useMemo(
+    () =>
+      electricalLayout.runs.flatMap((run) =>
+        planView === "wall" &&
+        markers.some(
+          (marker) =>
+            marker.id === run.terminalId &&
+            marker.kind !== "light" &&
+            marker.wallIndex !== elevationWallIndex,
+        )
+          ? []
+          : run.conductors.map((conductor, conductorIndex): ElectricalRouteOverlay => ({
+          id: `${run.id}-${conductor.role}`,
+          spaceId: activeSpaceId ?? "preview",
+          path: run.path.map((point) =>
+            planView === "plan"
+              ? projectElectricalPoint(point, "plan", height)
+              : projectPointToWall(point, vertices, elevationWallIndex, height),
+          ),
+          role: conductor.role,
+          color: conductorColors[conductor.color],
+          dashPattern: "34 68",
+          dashOffset: conductorIndex * -34,
+            })),
+      ),
+    [activeSpaceId, electricalLayout.runs, elevationWallIndex, height, markers, planView, vertices],
+  );
+  const visibleElectricalRoutes = useMemo(() => {
+    const persisted = activeSpaceId && planView === "plan"
+      ? electricalRoutes.filter((route) => route.spaceId === activeSpaceId)
+      : [];
+    return persisted.length > 0 ? persisted : projectedElectricalRoutes;
+  }, [activeSpaceId, electricalRoutes, planView, projectedElectricalRoutes]);
+
+  function selectPlanView(view: PlanEditorView) {
+    setPlanView(view);
+    if (view === "plan") {
+      setViewBox(fitViewBox(vertices));
+      return;
+    }
+    const start = vertices[elevationWallIndex]!;
+    const end = vertices[(elevationWallIndex + 1) % vertices.length]!;
+    const wallLength = Math.hypot(end.x - start.x, end.y - start.y);
+    setViewBox({
+      x: -400,
+      y: -400,
+      width: Math.max(1000, wallLength + 800),
+      height: height + 800,
+    });
+  }
+
+  function selectElevationWall(index: number) {
+    setElevationWallIndex(index);
+    setSelectedWallIndex(index);
+    setSelectedMarkerIds([]);
+    const start = vertices[index]!;
+    const end = vertices[(index + 1) % vertices.length]!;
+    setViewBox({
+      x: -400,
+      y: -400,
+      width: Math.max(1000, Math.hypot(end.x - start.x, end.y - start.y) + 800),
+      height: height + 800,
+    });
+  }
 
   function openMaterialsDrawer() {
     const drawer = document.getElementById("materials-shopping-drawer");
@@ -1168,6 +1305,7 @@ export function CadWorkspace({
       kind: marker.kind,
       point: marker.point,
       wallIndex: marker.wallIndex,
+      placementSurface: marker.placementSurface,
       widthMm: marker.widthMm,
       heightMm: marker.heightMm,
       elevationMm: marker.elevationMm,
@@ -1299,6 +1437,25 @@ export function CadWorkspace({
     }
   }
 
+  async function toggleElectricalLayer() {
+    const shouldShow = !showElectricalLayer;
+    setShowElectricalLayer(shouldShow);
+    if (!shouldShow || electricalRoutes.some((route) => route.spaceId === activeSpaceId)) return;
+
+    // The proposal is deterministic and remains editable in the electrical editor.
+    // It is generated on demand so an untouched plan does not acquire invisible data.
+    setGeneratingElectrical(true);
+    try {
+      const formData = new FormData();
+      formData.set("locale", locale);
+      formData.set("projectId", projectId);
+      await generateElectricalProposal(formData);
+      router.refresh();
+    } finally {
+      setGeneratingElectrical(false);
+    }
+  }
+
   useEffect(() => {
     if (!activeSpaceId || serialized === lastSavedRef.current) return;
     setSaveState("dirty");
@@ -1358,9 +1515,16 @@ export function CadWorkspace({
             point: { x: element.transform.position.x, y: element.transform.position.y },
             wallIndex:
               typeof host?.specification.wallIndex === "number" ? host.specification.wallIndex : 0,
+            placementSurface:
+              markerKind === "light"
+                ? "ceiling"
+                : element.specification.placementSurface === "ceiling" ||
+              element.specification.placementSurface === "floor"
+                ? element.specification.placementSurface
+                : "wall",
             widthMm: element.dimensionsMm.width,
             heightMm: element.dimensionsMm.height,
-            elevationMm: element.transform.position.z,
+            elevationMm: markerKind === "light" ? space.clearHeightMm : element.transform.position.z,
             variant:
               typeof element.specification.variant === "string"
                 ? element.specification.variant
@@ -1380,6 +1544,7 @@ export function CadWorkspace({
         kind: marker.kind,
         point: marker.point,
         wallIndex: marker.wallIndex,
+        placementSurface: marker.placementSurface,
         widthMm: marker.widthMm,
         heightMm: marker.heightMm,
         elevationMm: marker.elevationMm,
@@ -1463,12 +1628,18 @@ export function CadWorkspace({
     }
     if (tool !== "select") {
       checkpoint();
-      const nearest = closestWall(vertices, svgPoint(event), defaults[tool].widthMm);
+      const canvasPoint = svgPoint(event);
+      const nearest = closestWall(vertices, canvasPoint, defaults[tool].widthMm);
+      const placementSurface = tool === "light" ? "ceiling" : "wall";
       const marker: Marker = {
         id: crypto.randomUUID(),
         kind: tool,
-        point: { x: Math.round(nearest.point.x), y: Math.round(nearest.point.y) },
+        point:
+          placementSurface === "ceiling"
+            ? { x: Math.round(canvasPoint.x), y: Math.round(canvasPoint.y) }
+            : { x: Math.round(nearest.point.x), y: Math.round(nearest.point.y) },
         wallIndex: nearest.wallIndex,
+        placementSurface,
         variant: defaultVariants[tool],
         ...defaults[tool],
       };
@@ -1512,6 +1683,17 @@ export function CadWorkspace({
         dragCheckpointRef.current = true;
       }
       const active = markers.find((marker) => marker.id === activeMarker);
+      if (active?.placementSurface !== "wall") {
+        const point = svgPoint(event);
+        setMarkers((current) =>
+          current.map((marker) =>
+            marker.id === activeMarker
+              ? { ...marker, point: { x: Math.round(point.x), y: Math.round(point.y) } }
+              : marker,
+          ),
+        );
+        return;
+      }
       const nearest = closestWall(vertices, svgPoint(event), active?.widthMm ?? 0);
       if (active && selectedMarkerIds.length > 1) {
         const wallStart = vertices[active.wallIndex];
@@ -1560,6 +1742,28 @@ export function CadWorkspace({
         y: panStart.current.viewBox.y - dy,
       });
     }
+  }
+
+  function handleElevationPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    if (!activeMarker) return;
+    const marker = markers.find((candidate) => candidate.id === activeMarker);
+    if (!marker || marker.kind === "light" || marker.wallIndex !== elevationWallIndex) return;
+    if (!dragCheckpointRef.current) {
+      checkpoint();
+      dragCheckpointRef.current = true;
+    }
+    const point = svgPoint(event);
+    const positioned = positionHostedMarker(marker, vertices, Math.max(0, point.x));
+    setMarkers((current) =>
+      current.map((candidate) =>
+        candidate.id === marker.id
+          ? {
+              ...positioned,
+              elevationMm: Math.round(Math.max(0, Math.min(height, height - point.y))),
+            }
+          : candidate,
+      ),
+    );
   }
 
   function finishPointerInteraction() {
@@ -1653,27 +1857,37 @@ export function CadWorkspace({
           </svg>
           <span>{messages.materialsAndShopping}</span>
         </button>
-        <div className="cad-save-group">
-          <span role="status">
-            {saveState === "dirty"
-              ? messages.savePending
-              : saveState === "saving"
-                ? messages.savingPlan
-                : saveState === "error"
-                  ? messages.saveFailed
-                  : activeSpaceId
-                    ? messages.planSaved
-                    : ""}
+        <button
+          aria-label={messages.electricalCircuits ?? messages.materialsAndShopping}
+          aria-busy={generatingElectrical}
+          aria-pressed={showElectricalLayer}
+          className={showElectricalLayer ? "cad-header-action is-active" : "cad-header-action"}
+          disabled={generatingElectrical}
+          onClick={() => void toggleElectricalLayer()}
+          type="button"
+        >
+          <span aria-hidden="true">⚡</span>
+          <span>{messages.electricalCircuits ?? messages.materialsAndShopping}</span>
+        </button>
+        <button
+          aria-busy={saveState === "saving"}
+          aria-label={messages.savePlan}
+          className="button cad-save"
+          type="button"
+          onClick={() => void persistPlan(activeSpaceId)}
+          disabled={saveState === "saving"}
+        >
+          {saveState === "saving" ? <span aria-hidden="true" className="button-spinner" /> : messages.savePlan}
+          <span className="sr-only" role="status">
+            {saveState === "saving"
+              ? messages.savingPlan
+              : saveState === "error"
+                ? messages.saveFailed
+                : activeSpaceId
+                  ? messages.planSaved
+                  : ""}
           </span>
-          <button
-            className="button cad-save"
-            type="button"
-            onClick={() => void persistPlan(activeSpaceId)}
-            disabled={saveState === "saving"}
-          >
-            {messages.savePlan}
-          </button>
-        </div>
+        </button>
       </header>
       <button
         className="cad-materials-mobile-nav"
@@ -1758,6 +1972,58 @@ export function CadWorkspace({
           </div>
           {mode === "2d" ? (
             <>
+              <div className="cad-plan-views" aria-label={messages.viewElevation}>
+                {([
+                  ["plan", messages.viewTop],
+                  ["wall", messages.viewElevation],
+                ] as const).map(([view, label]) => (
+                  <button
+                    aria-pressed={planView === view}
+                    className={planView === view ? "is-active" : ""}
+                    key={view}
+                    onClick={() => selectPlanView(view)}
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {planView === "wall" ? (
+                <div className="cad-wall-selector" aria-label={messages.viewElevation}>
+                  <button
+                    aria-label={messages.previousWall}
+                    onClick={() =>
+                      selectElevationWall(
+                        (elevationWallIndex - 1 + vertices.length) % vertices.length,
+                      )
+                    }
+                    type="button"
+                  >
+                    ‹
+                  </button>
+                  <div className="cad-wall-tabs">
+                    {vertices.map((start, index) => (
+                      <button
+                        aria-pressed={elevationWallIndex === index}
+                        className={elevationWallIndex === index ? "is-active" : ""}
+                        key={`wall-tab-${index}`}
+                        onClick={() => selectElevationWall(index)}
+                        type="button"
+                      >
+                        <strong>W{index + 1}</strong>
+                        <small>{edgeLength(start, vertices[(index + 1) % vertices.length]!)} mm</small>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    aria-label={messages.nextWall}
+                    onClick={() => selectElevationWall((elevationWallIndex + 1) % vertices.length)}
+                    type="button"
+                  >
+                    ›
+                  </button>
+                </div>
+              ) : null}
               <div className="cad-view-controls">
                 <button type="button" aria-label={messages.zoomIn} onClick={() => zoom(0.82)}>
                   +
@@ -1783,8 +2049,10 @@ export function CadWorkspace({
               <svg
                 className="cad-canvas"
                 viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
-                onPointerDown={handleCanvasPointerDown}
-                onPointerMove={handlePointerMove}
+                onPointerDown={planView === "plan" ? handleCanvasPointerDown : undefined}
+                onPointerMove={
+                  planView === "plan" ? handlePointerMove : handleElevationPointerMove
+                }
                 onPointerUp={finishPointerInteraction}
                 onPointerLeave={finishPointerInteraction}
                 onWheel={handleWheel}
@@ -1807,12 +2075,12 @@ export function CadWorkspace({
                 />
                 <polygon
                   points={vertices.map((point) => `${point.x},${point.y}`).join(" ")}
-                  fill="rgba(244,172,61,.10)"
-                  stroke="#2a4b4f"
+                  fill={planView === "plan" ? "rgba(244,172,61,.10)" : "transparent"}
+                  stroke={planView === "plan" ? "#2a4b4f" : "transparent"}
                   strokeWidth="70"
                   strokeLinejoin="miter"
                 />
-                {vertices.map((start, index) => {
+                {planView === "plan" ? vertices.map((start, index) => {
                   const end = vertices[(index + 1) % vertices.length]!;
                   const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
                   return (
@@ -1854,8 +2122,35 @@ export function CadWorkspace({
                       </text>
                     </g>
                   );
-                })}
-                {markers.map((marker) => (
+                }) : (
+                  <g pointerEvents="none">
+                    <rect
+                      x={viewBox.x}
+                      y={viewBox.y}
+                      width={viewBox.width}
+                      height={viewBox.height}
+                      fill="#f9f8f4"
+                    />
+                    <line
+                      x1={viewBox.x}
+                      x2={viewBox.x + viewBox.width}
+                      y1={height}
+                      y2={height}
+                      stroke="#2a4b4f"
+                      strokeWidth="45"
+                    />
+                    <line
+                      x1={viewBox.x}
+                      x2={viewBox.x + viewBox.width}
+                      y1={0}
+                      y2={0}
+                      stroke="#8a9a9c"
+                      strokeDasharray="100 55"
+                      strokeWidth="22"
+                    />
+                  </g>
+                )}
+                {planView === "plan" ? markers.map((marker) => (
                   <g
                     key={marker.id}
                     onPointerDown={(event) => {
@@ -1879,7 +2174,110 @@ export function CadWorkspace({
                       selected={selectedMarkerIds.includes(marker.id)}
                     />
                   </g>
-                ))}
+                )) : electricalLayout.terminals.map((terminal) => {
+                  const marker = markers.find((candidate) => candidate.id === terminal.id);
+                  if (!marker) return null;
+                  if (marker.kind !== "light" && marker.wallIndex !== elevationWallIndex) return null;
+                  const point = projectPointToWall(
+                    { x: terminal.point.x, y: terminal.point.y, z: terminal.elevationMm },
+                    vertices,
+                    elevationWallIndex,
+                    height,
+                  );
+                  return (
+                    <g
+                      key={terminal.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${toolLabels[marker.kind]} · ${terminal.elevationMm} mm`}
+                      transform={`translate(${point.x} ${point.y})`}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        setSelectedMarkerIds([terminal.id]);
+                        setSelectedWallIndex(null);
+                        if (marker.kind !== "light") {
+                          setActiveMarker(terminal.id);
+                          event.currentTarget.setPointerCapture(event.pointerId);
+                        }
+                      }}
+                    >
+                      <circle
+                        r={selectedMarkerIds.includes(terminal.id) ? 88 : 68}
+                        fill="#fff"
+                        stroke={selectedMarkerIds.includes(terminal.id) ? "#f4ac3d" : "#2a4b4f"}
+                        strokeWidth="24"
+                      />
+                      <text x="95" y="-25" fontSize="82" fontWeight="800" fill="#1c3133">
+                        {toolLabels[marker.kind]}
+                      </text>
+                      <text x="95" y="70" fontSize="72" fill="#687d7f">
+                        {terminal.elevationMm} mm
+                      </text>
+                    </g>
+                  );
+                })}
+                {showElectricalLayer
+                  ? visibleElectricalRoutes.map((route) => (
+                        <g key={route.id} pointerEvents="none">
+                          <polyline
+                            points={route.path.map((point) => `${point.x},${point.y}`).join(" ")}
+                            fill="none"
+                            stroke={route.color ?? electricalWireColors[route.role as keyof typeof electricalWireColors] ?? "#f4ac3d"}
+                            strokeDasharray={route.dashPattern ?? (route.role === "switch_return" ? "110 50" : undefined)}
+                            strokeDashoffset={route.dashOffset}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="42"
+                          />
+                          {route.path.map((point, index) => (
+                            <circle
+                              key={index}
+                              cx={point.x}
+                              cy={point.y}
+                              fill="#fff"
+                              r="45"
+                              stroke={route.color ?? electricalWireColors[route.role as keyof typeof electricalWireColors] ?? "#f4ac3d"}
+                              strokeWidth="16"
+                            />
+                          ))}
+                        </g>
+                      ))
+                  : null}
+                {showElectricalLayer
+                  ? electricalLayout.junctionBoxes.map((box) => {
+                      const point = projectElectricalPoint(
+                        { x: box.point.x, y: box.point.y, z: box.elevationMm },
+                        "plan",
+                        height,
+                      );
+                      const displayedPoint =
+                        planView === "plan"
+                          ? point
+                          : projectPointToWall(
+                              { x: box.point.x, y: box.point.y, z: box.elevationMm },
+                              vertices,
+                              elevationWallIndex,
+                              height,
+                            );
+                      return (
+                        <g key={box.id} pointerEvents="none" transform={`translate(${displayedPoint.x} ${displayedPoint.y})`}>
+                          <rect
+                            x="-82"
+                            y="-82"
+                            width="164"
+                            height="164"
+                            rx="24"
+                            fill="#fff"
+                            stroke="#f4ac3d"
+                            strokeWidth="28"
+                          />
+                          <text x="0" y="24" textAnchor="middle" fontSize="74" fontWeight="900" fill="#1c3133">
+                            {box.circuitCode}
+                          </text>
+                        </g>
+                      );
+                    })
+                  : null}
                 {drawingVertices?.length ? (
                   <polyline
                     points={drawingVertices.map((point) => `${point.x},${point.y}`).join(" ")}

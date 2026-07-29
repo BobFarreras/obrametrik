@@ -341,6 +341,19 @@ són opcionals i no poden degradar el rendiment.
 La biblioteca no és una galeria d'icones. Cada component defineix geometria,
 connexions, paràmetres, restriccions, amidaments i regles aplicables.
 
+### Estat implementat del primer vertical elèctric
+
+A juliol de 2026, web i mòbil comparteixen el model que genera la proposta
+determinista de C1/C2, conductors, caixes de derivació i recorreguts 3D. Els
+punts de llum es poden col·locar lliurement al sostre. La planta i els alçats
+W1…Wn projecten el mateix model; els terminals de paret es poden ajustar en
+desplaçament i alçada des de l'alçat.
+
+La capa de circuits es pot ocultar sense modificar el projecte. La proposta
+local és immediata i les rutes confirmades, quan existeixen, en són la font
+persistent. L'abast, les decisions i el mapa de codi actuals es documenten a
+`docs/features/electrical-takeoff-engine/IMPLEMENTATION.md`.
+
 ### 9.1 Electricitat
 
 Components inicials:

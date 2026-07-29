@@ -1,5 +1,9 @@
 # Motor determinista d’amidaments i escandall elèctric — Fase 1
 
+La descripció de l'arquitectura implementada, el mapa de fitxers, el flux de
+dades i les limitacions vigents es troben a
+`docs/features/electrical-takeoff-engine/IMPLEMENTATION.md`.
+
 ## Objectiu
 
 Produir un escandall preliminar, reproduïble i auditable per a circuits
@@ -174,3 +178,58 @@ requereix una segona acció manual.
 - Variants diferents no es barregen en una mateixa línia comercial.
 - La generació rellegeix el projecte al servidor i no confia en un recompte
   enviat pel client.
+
+## Increment 5 — Circuits, connexions i recorreguts confirmats
+
+El projecte incorpora un model elèctric explícit, independent de la geometria
+arquitectònica però referenciat als seus objectes. Un circuit assigna terminals
+confirmats i conté trams físics confirmats. Cada tram registra inici, final,
+longitud mesurada, conductors i canalització.
+
+### Contracte observable
+
+- Un terminal pot pertànyer com a màxim a un circuit actiu.
+- Un tram sempre pertany a un circuit del mateix projecte.
+- La longitud prové de la polilínia confirmada; no s'infereix d'una distància
+  invisible ni d'una imatge.
+- El tub es compta una vegada per tram físic; els conductors multipliquen la
+  longitud pel seu nombre.
+- Materials de mecanismes, cables i tubs es publiquen en una mateixa execució
+  immutable, conservant les entitats d'origen.
+- Un circuit incomplet conserva els mecanismes calculables i mostra exactament
+  quines dades falten; no genera metres parcials com si fossin definitius.
+- El quadre i les proteccions només es generen a partir de circuits confirmats.
+
+### Persistència i autorització
+
+- `electrical_circuits` desa la identitat, codi i terminals assignats.
+- `electrical_route_segments` desa cada recorregut físic i la seva configuració.
+- Membres del projecte poden llegir; només owner/admin poden modificar.
+- Les referències creuades es validen a la base de dades i les consultes de UI
+  filtren sempre per `project_id`.
+
+### Criteris d'acceptació
+
+- Crear, editar i eliminar un circuit sense perdre el plànol arquitectònic.
+- Assignar només terminals elèctrics confirmats del mateix projecte.
+- Dibuixar una polilínia amb dos punts com a mínim i veure'n la longitud en
+  metres abans de confirmar-la.
+- Un tram de 10 m amb tres conductors produeix 30 m de conductor i 10 m de tub
+  abans de reserves, marge i arrodoniment.
+- Dos trams que comparteixen especificació s'agrupen sense perdre traçabilitat.
+- Sense trams confirmats, cable i tub continuen pendents.
+- Web i app nativa poden consultar i editar els mateixos circuits.
+
+## Increment 6 — Xarxa espacial i alçats sincronitzats
+
+- Els punts de llum de sostre conserven coordenades lliures en planta i no
+  necessiten una paret host.
+- Planta, alçat frontal i alçat lateral són projeccions del mateix punt 3D.
+- La proposta crea una caixa de derivació per cada circuit poblat i enllaça
+  cada terminal amb una polilínia tridimensional editable.
+- Cada tram exposa tots els conductors per separat amb funció, color i secció;
+  la canalització continua comptant-se una sola vegada.
+- Els recorreguts verticals es veuen als alçats i acaben a l'alçada real del
+  terminal.
+- La proposta és determinista i editable. No confirma passos constructius,
+  regates ni perforacions ocultes.

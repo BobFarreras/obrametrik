@@ -4,6 +4,7 @@ import {
   type CadComponentKind,
   type CadComponentVariant,
   type CadPlanDraft,
+  type CadPlacementSurface,
   type DoorSwing,
 } from "@obrametrik/application";
 import type { BuildingElement, BuildingSpace, Point2Mm, SpaceKind } from "@obrametrik/domain";
@@ -13,6 +14,7 @@ export type MobileCadMarker = {
   kind: CadComponentKind;
   point: Point2Mm;
   wallIndex: number;
+  placementSurface?: CadPlacementSurface;
   widthMm: number;
   heightMm: number;
   elevationMm: number;
@@ -81,7 +83,9 @@ export function closestWallPoint(
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lengthSquared = dx * dx + dy * dy;
-    const raw = lengthSquared ? ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared : 0;
+    const raw = lengthSquared
+      ? ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared
+      : 0;
     const margin = Math.min(0.49, componentWidthMm / 2 / Math.max(Math.sqrt(lengthSquared), 1));
     const ratio = Math.max(margin, Math.min(1 - margin, raw));
     const projected = { x: Math.round(start.x + dx * ratio), y: Math.round(start.y + dy * ratio) };
@@ -112,8 +116,7 @@ export function moveOrthogonalVertex(
   result[vertexIndex] = moved;
   result[previousIndex] =
     previous.x === current.x ? { ...previous, x: moved.x } : { ...previous, y: moved.y };
-  result[nextIndex] =
-    next.x === current.x ? { ...next, x: moved.x } : { ...next, y: moved.y };
+  result[nextIndex] = next.x === current.x ? { ...next, x: moved.x } : { ...next, y: moved.y };
   return result;
 }
 
@@ -145,7 +148,8 @@ export function openingClearancesMm(
   if (!wallLength) return { beforeMm: 0, afterMm: 0 };
   const dx = end.x - start.x;
   const dy = end.y - start.y;
-  const centerOffset = ((marker.point.x - start.x) * dx + (marker.point.y - start.y) * dy) / wallLength;
+  const centerOffset =
+    ((marker.point.x - start.x) * dx + (marker.point.y - start.y) * dy) / wallLength;
   return {
     beforeMm: Math.max(0, Math.round(centerOffset - marker.widthMm / 2)),
     afterMm: Math.max(0, Math.round(wallLength - centerOffset - marker.widthMm / 2)),
@@ -189,7 +193,10 @@ function wallPositionRatio(point: Point2Mm, start: Point2Mm, end: Point2Mm): num
   const dy = end.y - start.y;
   const squaredLength = dx * dx + dy * dy;
   if (!squaredLength) return 0.5;
-  return Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / squaredLength));
+  return Math.max(
+    0,
+    Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / squaredLength),
+  );
 }
 
 export function reprojectHostedMarkers(
@@ -243,28 +250,38 @@ export function documentFromBuildingModel(
             : null;
       if (!kind) return [];
       const host = elements.find((candidate) => candidate.id === element.hostElementId);
-      return [{
-        id: element.id,
-        kind,
-        point: { x: element.transform.position.x, y: element.transform.position.y },
-        wallIndex: typeof host?.specification.wallIndex === "number" ? host.specification.wallIndex : 0,
-        widthMm: element.dimensionsMm.width,
-        heightMm: element.dimensionsMm.height,
-        elevationMm: element.transform.position.z,
-        variant: isCadComponentVariant(kind, element.specification.componentVariant)
-          ? element.specification.componentVariant
-          : defaultCadComponentVariant(kind),
-        swing:
-          kind === "door" &&
-          (element.specification.doorSwing === "left_in" ||
-            element.specification.doorSwing === "right_in" ||
-            element.specification.doorSwing === "left_out" ||
-            element.specification.doorSwing === "right_out")
-            ? element.specification.doorSwing
-            : kind === "door"
-              ? "left_in"
-              : undefined,
-      }];
+      return [
+        {
+          id: element.id,
+          kind,
+          point: { x: element.transform.position.x, y: element.transform.position.y },
+          wallIndex:
+            typeof host?.specification.wallIndex === "number" ? host.specification.wallIndex : 0,
+          widthMm: element.dimensionsMm.width,
+          heightMm: element.dimensionsMm.height,
+          elevationMm: kind === "light" ? space.clearHeightMm : element.transform.position.z,
+          variant: isCadComponentVariant(kind, element.specification.componentVariant)
+            ? element.specification.componentVariant
+            : defaultCadComponentVariant(kind),
+          placementSurface:
+            kind === "light"
+              ? "ceiling"
+              : element.specification.placementSurface === "ceiling" ||
+            element.specification.placementSurface === "floor"
+              ? element.specification.placementSurface
+              : "wall",
+          swing:
+            kind === "door" &&
+            (element.specification.doorSwing === "left_in" ||
+              element.specification.doorSwing === "right_in" ||
+              element.specification.doorSwing === "left_out" ||
+              element.specification.doorSwing === "right_out")
+              ? element.specification.doorSwing
+              : kind === "door"
+                ? "left_in"
+                : undefined,
+        },
+      ];
     });
   return {
     spaceId: space.id,
@@ -293,8 +310,28 @@ export function toCadPlan(projectId: string, document: MobileCadDocument): CadPl
     kind: document.kind,
     vertices: document.vertices,
     clearHeightMm: document.clearHeightMm,
-    components: document.markers.map(({ kind, point, wallIndex, widthMm, heightMm, elevationMm, swing, variant }) => ({
-      kind, point, wallIndex, widthMm, heightMm, elevationMm, swing, variant,
-    })),
+    components: document.markers.map(
+      ({
+        kind,
+        point,
+        wallIndex,
+        placementSurface,
+        widthMm,
+        heightMm,
+        elevationMm,
+        swing,
+        variant,
+      }) => ({
+        kind,
+        point,
+        wallIndex,
+        placementSurface: placementSurface ?? (kind === "light" ? "ceiling" : "wall"),
+        widthMm,
+        heightMm,
+        elevationMm,
+        swing,
+        variant,
+      }),
+    ),
   };
 }

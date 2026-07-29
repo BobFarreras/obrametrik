@@ -1,5 +1,6 @@
 import type { Database } from "@obrametrik/database";
 import type { messages } from "@obrametrik/i18n";
+import Link from "next/link";
 import {
   addTakeoffLineToShoppingList,
   toggleShoppingListItem,
@@ -28,6 +29,8 @@ function categoryLabel(categoryId: string, t: Catalog): string {
     "electrical.box.flush": t.materialFlushBox,
     "electrical.frame": t.materialFrame,
     "electrical.connector": t.materialConnector,
+    "electrical.conductor": t.materialConductor,
+    "electrical.conduit": t.materialConduit,
     "tool.insulated_screwdriver": t.toolInsulatedScrewdriver,
     "tool.wire_stripper": t.toolWireStripper,
     "tool.voltage_tester": t.toolVoltageTester,
@@ -108,6 +111,20 @@ function MaterialIllustration({ categoryId }: { categoryId: string }) {
         <path {...common} d="M15 17v14M24 17v14M33 17v14M4 24h5M39 24h5" />
       </svg>
     );
+  if (categoryId.includes("conductor"))
+    return (
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <path {...common} d="M5 16h29c12 0 12 16 0 16H14c-8 0-8 10 0 10h25" />
+        <path {...common} d="M5 12v8M39 38v8" />
+      </svg>
+    );
+  if (categoryId.includes("conduit"))
+    return (
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <path {...common} d="M4 14h25c17 0 17 20 0 20H10" />
+        <path {...common} d="M8 10v8M14 10v8M20 10v8M26 10v8" />
+      </svg>
+    );
   return (
     <svg viewBox="0 0 48 48" aria-hidden="true">
       <path {...common} d="m13 35 19-19M28 12l8-3-3 8M10 38l-2 2M16 34l-6-6M29 28l9 9" />
@@ -140,7 +157,7 @@ function TakeoffCard({
             {variant ? <span>{variant}</span> : null}
           </div>
           <b>
-            {quantity(line.purchase_quantity, locale)} {t.unitsShort}
+            {quantity(line.purchase_quantity, locale)} {line.unit === "m" ? "m" : t.unitsShort}
           </b>
         </div>
         <p>{t.calculatedFromPlanObjects.replace("{count}", String(sources))}</p>
@@ -185,6 +202,9 @@ export function ElectricalTakeoffPanel({
 }) {
   const materials = lines.filter((line) => !line.category_id.startsWith("tool."));
   const tools = lines.filter((line) => line.category_id.startsWith("tool."));
+  const hasMeasuredRoutes = lines.some(
+    (line) => line.category_id === "electrical.conductor" || line.category_id === "electrical.conduit",
+  );
 
   return (
     <details className="takeoff-drawer" id="materials-shopping-drawer">
@@ -195,6 +215,12 @@ export function ElectricalTakeoffPanel({
           <h2>{t.materialsAndShopping}</h2>
           <p>{t.automaticMaterialsHelp}</p>
           <span className="materials-auto-status">{t.automaticOnSave}</span>
+          <Link
+            className="button button-primary"
+            href={`/${locale}/dashboard/projects/${projectId}/electrical`}
+          >
+            {t.openElectricalEditor}
+          </Link>
         </header>
 
         {!latestRun ? (
@@ -212,8 +238,8 @@ export function ElectricalTakeoffPanel({
         ) : (
           <>
             <section className="takeoff-route-notice">
-              <strong>{t.cablesPendingTitle}</strong>
-              <p>{t.routesPending}</p>
+              <strong>{hasMeasuredRoutes ? t.cableAndConduitCalculated : t.cablesPendingTitle}</strong>
+              <p>{hasMeasuredRoutes ? t.confirmedRoute : t.routesPending}</p>
             </section>
 
             <section className="takeoff-group" aria-labelledby="materials-title">

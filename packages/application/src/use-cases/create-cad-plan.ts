@@ -15,7 +15,12 @@ import { CreateProjectSpaceUseCase } from "./create-project-space";
 export function assertValidCadPlan(plan: CadPlanDraft): void {
   const openingIntervals = new Map<number, Array<{ start: number; end: number }>>();
   for (const component of plan.components) {
-    if (component.wallIndex >= plan.vertices.length) {
+    const placementSurface =
+      component.placementSurface ?? (component.kind === "light" ? "ceiling" : "wall");
+    if (
+      placementSurface === "wall" &&
+      (component.wallIndex === undefined || component.wallIndex >= plan.vertices.length)
+    ) {
       throw new RangeError("CAD component references an unknown wall");
     }
     const componentHeight =
@@ -25,6 +30,9 @@ export function assertValidCadPlan(plan: CadPlanDraft): void {
       throw new RangeError("CAD component exceeds the host wall height");
     }
     if (component.kind === "door" || component.kind === "window") {
+      if (component.wallIndex === undefined) {
+        throw new RangeError("CAD opening requires a host wall");
+      }
       const start = plan.vertices[component.wallIndex]!;
       const end = plan.vertices[(component.wallIndex + 1) % plan.vertices.length]!;
       const wallDx = end.x - start.x;
@@ -92,7 +100,7 @@ function wallDraft(
 
 function componentDraft(
   space: BuildingSpace,
-  wall: BuildingElement,
+  wall: BuildingElement | undefined,
   component: CadComponentDraft,
 ): BuildingElementDraft {
   const defaultDimensions =
@@ -119,20 +127,30 @@ function componentDraft(
               ? 150
               : 0;
   const positionZ = component.elevationMm ?? defaultElevation;
+  const placementSurface =
+    component.placementSurface ?? (component.kind === "light" ? "ceiling" : "wall");
+  if (placementSurface === "wall" && !wall) {
+    throw new RangeError("Wall-hosted CAD component requires a host wall");
+  }
 
   return {
     projectId: space.projectId,
     spaceId: space.id,
-    hostElementId: wall.id,
-    hostFace: "interior",
+    hostElementId: wall?.id ?? null,
+    hostFace: wall ? "interior" : null,
     kind: component.kind === "door" || component.kind === "window" ? component.kind : "terminal",
     name: component.kind,
     transform: {
       position: { ...component.point, z: positionZ },
-      rotationDegrees: wall.transform.rotationDegrees,
+      rotationDegrees: wall?.transform.rotationDegrees ?? { x: 0, y: 0, z: 0 },
     },
     dimensionsMm: dimensions,
-    specification: { source: "cad", terminalKind: component.kind },
+    specification: {
+      source: "cad",
+      terminalKind: component.kind,
+      placementSurface,
+      ...(component.variant ? { componentVariant: component.variant } : {}),
+    },
     lifecycle: "new",
     confirmation: "confirmed",
   };
@@ -171,8 +189,8 @@ export class CreateCadPlanUseCase {
       );
     }
     for (const component of plan.components) {
-      const wall = walls[component.wallIndex];
-      if (!wall) throw new RangeError("CAD component references an unknown wall");
+      const wall =
+        component.wallIndex === undefined ? undefined : walls[component.wallIndex];
       await this.repository.createElement(componentDraft(space, wall, component));
     }
     return space;

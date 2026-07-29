@@ -27,6 +27,8 @@ function categoryLabel(categoryId: string, t: (typeof messages)[keyof typeof mes
     "electrical.box.flush": t.materialFlushBox,
     "electrical.frame": t.materialFrame,
     "electrical.connector": t.materialConnector,
+    "electrical.conductor": t.materialConductor,
+    "electrical.conduit": t.materialConduit,
     "tool.insulated_screwdriver": t.toolInsulatedScrewdriver,
     "tool.wire_stripper": t.toolWireStripper,
     "tool.voltage_tester": t.toolVoltageTester,
@@ -41,6 +43,8 @@ function glyph(categoryId: string) {
   if (categoryId.includes("box")) return "○";
   if (categoryId.includes("frame")) return "▣";
   if (categoryId.includes("connector")) return "↔";
+  if (categoryId.includes("conductor")) return "〰";
+  if (categoryId.includes("conduit")) return "⌇";
   return "⌁";
 }
 
@@ -98,6 +102,10 @@ export default function MobileMaterialsScreen() {
 
   const materials = lines.filter((line) => !line.category_id.startsWith("tool."));
   const tools = lines.filter((line) => line.category_id.startsWith("tool."));
+  const hasMeasuredRoutes = lines.some(
+    (line) =>
+      line.category_id === "electrical.conductor" || line.category_id === "electrical.conduit",
+  );
 
   return (
     <View style={styles.screen}>
@@ -128,6 +136,22 @@ export default function MobileMaterialsScreen() {
           />
         }
       >
+        <Pressable
+          accessibilityRole="button"
+          onPress={() =>
+            router.push({
+              pathname: "/projects/[projectId]/electrical",
+              params: { projectId },
+            })
+          }
+          style={styles.electricalAction}
+        >
+          <View>
+            <Text style={styles.electricalActionTitle}>{t.electricalCircuits}</Text>
+            <Text style={styles.electricalActionHelp}>{t.electricalCircuitsHelp}</Text>
+          </View>
+          <Text style={styles.electricalActionArrow}>→</Text>
+        </Pressable>
         {loading ? (
           <ActivityIndicator color={theme.colors.brand} />
         ) : error ? (
@@ -143,8 +167,12 @@ export default function MobileMaterialsScreen() {
         ) : (
           <>
             <View style={styles.notice}>
-              <Text style={styles.noticeTitle}>{t.cablesPendingTitle}</Text>
-              <Text style={styles.noticeText}>{t.routesPending}</Text>
+              <Text style={styles.noticeTitle}>
+                {hasMeasuredRoutes ? t.cableAndConduitCalculated : t.cablesPendingTitle}
+              </Text>
+              <Text style={styles.noticeText}>
+                {hasMeasuredRoutes ? t.confirmedRoute : t.routesPending}
+              </Text>
             </View>
             <MaterialGroup lines={materials} title={t.materials} eyebrow={t.buyForInstallation} />
             <MaterialGroup lines={tools} title={t.tools} eyebrow={t.reusableNotConsumable} />
@@ -178,7 +206,7 @@ function MaterialGroup({
             <View style={styles.cardHeading}>
               <Text style={styles.cardTitle}>{categoryLabel(line.category_id, t)}</Text>
               <Text style={styles.quantity}>
-                {line.purchase_quantity} {t.unitsShort}
+                {line.purchase_quantity} {line.unit === "m" ? "m" : t.unitsShort}
               </Text>
             </View>
             <Text style={styles.cardText}>
@@ -277,4 +305,22 @@ const styles = StyleSheet.create({
   emptyTitle: { color: theme.colors.ink, fontSize: 20, fontWeight: "800", marginTop: 14 },
   emptyText: { color: theme.colors.muted, lineHeight: 20, marginTop: 8, textAlign: "center" },
   error: { color: theme.colors.danger, textAlign: "center" },
+  electricalAction: {
+    alignItems: "center",
+    backgroundColor: theme.colors.brand,
+    borderRadius: 22,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 18,
+    padding: 18,
+  },
+  electricalActionTitle: { color: theme.colors.surface, fontSize: 17, fontWeight: "900" },
+  electricalActionHelp: {
+    color: "#CFE0DD",
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 4,
+    maxWidth: 260,
+  },
+  electricalActionArrow: { color: theme.colors.accent, fontSize: 26, fontWeight: "900" },
 });

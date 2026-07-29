@@ -1,7 +1,7 @@
 import { createSupabaseBuildingModelRepository } from "@obrametrik/database";
 import { messages } from "@obrametrik/i18n";
 import { notFound } from "next/navigation";
-import { CadWorkspace } from "../../../../../components/cad-workspace";
+import { CadWorkspace, type ElectricalRouteOverlay } from "../../../../../components/cad-workspace";
 import { ElectricalTakeoffPanel } from "../../../../../components/electrical-takeoff-panel";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
 
@@ -21,10 +21,30 @@ export default async function ProjectDetail({
   if (!project) notFound();
 
   const repository = createSupabaseBuildingModelRepository(supabase);
-  const [spaces, elements] = await Promise.all([
+  const [spaces, elements, routesResult] = await Promise.all([
     repository.findSpacesByProject(projectId),
     repository.findElementsByProject(projectId),
+    supabase
+      .from("electrical_route_segments")
+      .select("id,space_id,path,route_role")
+      .eq("project_id", projectId)
+      .eq("status", "confirmed"),
   ]);
+  const electricalRoutes: ElectricalRouteOverlay[] = (routesResult.data ?? []).flatMap((route) => {
+    if (!Array.isArray(route.path)) return [];
+    const path = route.path.flatMap((point) =>
+      point &&
+      typeof point === "object" &&
+      !Array.isArray(point) &&
+      typeof point.x === "number" &&
+      typeof point.y === "number"
+        ? [{ x: point.x, y: point.y }]
+        : [],
+    );
+    return path.length >= 2
+      ? [{ id: route.id, spaceId: route.space_id, path, role: route.route_role }]
+      : [];
+  });
   const { data: latestRun } = await supabase
     .from("takeoff_runs")
     .select("*")
@@ -58,6 +78,7 @@ export default async function ProjectDetail({
         projectDescription={project.description}
         spaces={spaces}
         elements={elements}
+        electricalRoutes={electricalRoutes}
         messages={t}
       />
       <ElectricalTakeoffPanel

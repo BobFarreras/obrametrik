@@ -713,6 +713,241 @@ export type Database = {
           },
         ];
       };
+      electrical_circuits: {
+        Row: {
+          code: string;
+          created_at: string;
+          created_by: string;
+          id: string;
+          name: string;
+          project_id: string;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          code: string;
+          created_at?: string;
+          created_by: string;
+          id?: string;
+          name: string;
+          project_id: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          code?: string;
+          created_at?: string;
+          created_by?: string;
+          id?: string;
+          name?: string;
+          project_id?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "electrical_circuits_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      electrical_circuit_terminals: {
+        Row: {
+          circuit_id: string;
+          created_at: string;
+          created_by: string;
+          project_id: string;
+          terminal_element_id: string;
+        };
+        Insert: {
+          circuit_id: string;
+          created_at?: string;
+          created_by: string;
+          project_id: string;
+          terminal_element_id: string;
+        };
+        Update: {
+          circuit_id?: string;
+          created_at?: string;
+          created_by?: string;
+          project_id?: string;
+          terminal_element_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "electrical_circuit_terminals_project_id_circuit_id_fkey";
+            columns: ["project_id", "circuit_id"];
+            isOneToOne: false;
+            referencedRelation: "electrical_circuits";
+            referencedColumns: ["project_id", "id"];
+          },
+          {
+            foreignKeyName: "electrical_circuit_terminals_terminal_element_id_project_id_fkey";
+            columns: ["terminal_element_id", "project_id"];
+            isOneToOne: true;
+            referencedRelation: "building_elements";
+            referencedColumns: ["id", "project_id"];
+          },
+        ];
+      };
+      electrical_route_segments: {
+        Row: {
+          circuit_id: string;
+          conduit_diameter_mm: number;
+          conduit_system: string;
+          conductor_configuration: Json;
+          created_at: string;
+          created_by: string;
+          id: string;
+          length_mm: number;
+          name: string;
+          path: Json;
+          project_id: string;
+          route_role: string;
+          space_id: string;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          circuit_id: string;
+          conduit_diameter_mm: number;
+          conduit_system: string;
+          conductor_configuration: Json;
+          created_at?: string;
+          created_by: string;
+          id?: string;
+          length_mm: number;
+          name: string;
+          path: Json;
+          project_id: string;
+          route_role: string;
+          space_id: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          circuit_id?: string;
+          conduit_diameter_mm?: number;
+          conduit_system?: string;
+          conductor_configuration?: Json;
+          created_at?: string;
+          created_by?: string;
+          id?: string;
+          length_mm?: number;
+          name?: string;
+          path?: Json;
+          project_id?: string;
+          route_role?: string;
+          space_id?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "electrical_route_segments_project_id_circuit_id_fkey";
+            columns: ["project_id", "circuit_id"];
+            isOneToOne: false;
+            referencedRelation: "electrical_circuits";
+            referencedColumns: ["project_id", "id"];
+          },
+        ];
+      };
+      electrical_connections: {
+        Row: {
+          circuit_id: string;
+          created_at: string;
+          created_by: string;
+          id: string;
+          load_terminal_id: string;
+          project_id: string;
+          status: string;
+          topology: string;
+          updated_at: string;
+        };
+        Insert: {
+          circuit_id: string;
+          created_at?: string;
+          created_by: string;
+          id?: string;
+          load_terminal_id: string;
+          project_id: string;
+          status?: string;
+          topology: string;
+          updated_at?: string;
+        };
+        Update: {
+          circuit_id?: string;
+          created_at?: string;
+          created_by?: string;
+          id?: string;
+          load_terminal_id?: string;
+          project_id?: string;
+          status?: string;
+          topology?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "electrical_connections_project_id_circuit_id_fkey";
+            columns: ["project_id", "circuit_id"];
+            isOneToOne: false;
+            referencedRelation: "electrical_circuits";
+            referencedColumns: ["project_id", "id"];
+          },
+          {
+            foreignKeyName: "electrical_connections_load_terminal_id_project_id_fkey";
+            columns: ["load_terminal_id", "project_id"];
+            isOneToOne: true;
+            referencedRelation: "building_elements";
+            referencedColumns: ["id", "project_id"];
+          },
+        ];
+      };
+      electrical_connection_controls: {
+        Row: {
+          connection_id: string;
+          control_terminal_id: string;
+          created_at: string;
+          created_by: string;
+          project_id: string;
+          sequence: number;
+        };
+        Insert: {
+          connection_id: string;
+          control_terminal_id: string;
+          created_at?: string;
+          created_by: string;
+          project_id: string;
+          sequence: number;
+        };
+        Update: {
+          connection_id?: string;
+          control_terminal_id?: string;
+          created_at?: string;
+          created_by?: string;
+          project_id?: string;
+          sequence?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "electrical_connection_controls_project_id_connection_id_fkey";
+            columns: ["project_id", "connection_id"];
+            isOneToOne: false;
+            referencedRelation: "electrical_connections";
+            referencedColumns: ["project_id", "id"];
+          },
+          {
+            foreignKeyName: "electrical_connection_controls_control_terminal_id_project_id_fkey";
+            columns: ["control_terminal_id", "project_id"];
+            isOneToOne: false;
+            referencedRelation: "building_elements";
+            referencedColumns: ["id", "project_id"];
+          },
+        ];
+      };
       takeoff_lines: {
         Row: {
           assumptions: Json;

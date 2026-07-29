@@ -92,6 +92,9 @@ d’acció. El teal comunica confiança i l’amber energia i progrés.
 - Els errors impossibles s'expliquen abans de guardar.
 - La definició completa de l'editor es troba a
   `docs/GUIA_EDITOR_PLÀNOLS_PROFESSIONAL.md`.
+- L'estat implementat del model elèctric, les projeccions planta/alçat i el flux
+  fins a materials es documenta a
+  `docs/features/electrical-takeoff-engine/IMPLEMENTATION.md`.
 
 ### Materials
 

@@ -5,10 +5,19 @@ import {
   createMeasurementSchema,
   createRoomSchema,
   createSurfaceSchema,
+  electricalCircuitSchema,
+  electricalRouteSchema,
   localeSchema,
   uuidSchema,
 } from "@obrametrik/validation";
-import { GenerateElectricalPlanBillUseCase, SaveCadPlanUseCase } from "@obrametrik/application";
+import {
+  buildElectricalProjectCircuits,
+  defaultRouteConfiguration,
+  GenerateElectricalPlanBillUseCase,
+  GenerateElectricalProjectTakeoffUseCase,
+  measuredPolylineLengthMm,
+  SaveCadPlanUseCase,
+} from "@obrametrik/application";
 import { createSupabaseBuildingModelRepository, type Json } from "@obrametrik/database";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
@@ -133,7 +142,30 @@ async function saveElectricalPlanBill(
   projectId: string,
 ) {
   const elements = await repository.findElementsByProject(projectId);
-  const result = new GenerateElectricalPlanBillUseCase().execute(elements);
+  const [circuitsResult, assignmentsResult, segmentsResult] = await Promise.all([
+    supabase.from("electrical_circuits").select("id,code,status").eq("project_id", projectId),
+    supabase
+      .from("electrical_circuit_terminals")
+      .select("circuit_id,terminal_element_id")
+      .eq("project_id", projectId),
+    supabase
+      .from("electrical_route_segments")
+      .select(
+        "id,circuit_id,length_mm,conductor_configuration,conduit_system,conduit_diameter_mm,status",
+      )
+      .eq("project_id", projectId),
+  ]);
+  const result =
+    !circuitsResult.error && !assignmentsResult.error && !segmentsResult.error
+      ? new GenerateElectricalProjectTakeoffUseCase().execute({
+          elements,
+          circuits: buildElectricalProjectCircuits({
+            circuits: circuitsResult.data,
+            assignments: assignmentsResult.data,
+            segments: segmentsResult.data,
+          }),
+        })
+      : new GenerateElectricalPlanBillUseCase().execute(elements);
   const lines = result.lines.map((line) => ({
     category_id: line.categoryId,
     specification: line.specification,
@@ -168,6 +200,261 @@ async function saveElectricalPlanBill(
     p_lines: lines as unknown as Json,
   });
   if (error) throw error;
+}
+
+export async function createElectricalCircuit(formData: FormData) {
+  const route = path(formData);
+  const parsed = electricalCircuitSchema.safeParse({
+    projectId: route.projectId,
+    name: formData.get("name"),
+    code: formData.get("code"),
+  });
+  if (!parsed.success) return { status: "error" as const };
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) return { status: "error" as const };
+  const { error } = await supabase.from("electrical_circuits").insert({
+    project_id: parsed.data.projectId,
+    created_by: data.user.id,
+    name: parsed.data.name,
+    code: parsed.data.code,
+    status: "confirmed",
+  });
+  if (error) return { status: "error" as const };
+  revalidatePath(route.value);
+  return { status: "saved" as const };
+}
+
+/**
+ * Creates an editable first proposal from confirmed CAD terminals. It is a
+ * planning aid: users can still move, delete or extend every generated route.
+ */
+export async function generateElectricalProposal(formData: FormData) {
+  const route = path(formData);
+  const supabase = await createSupabaseServerClient();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) return;
+  const repository = createSupabaseBuildingModelRepository(supabase);
+  const [elements, existing] = await Promise.all([
+    repository.findElementsByProject(route.projectId),
+    supabase.from("electrical_circuits").select("id").eq("project_id", route.projectId).limit(1),
+  ]);
+  if (existing.error || existing.data.length > 0) return;
+  const terminals = elements.filter(
+    (element) =>
+      element.kind === "terminal" &&
+      element.confirmation === "confirmed" &&
+      element.lifecycle !== "to_remove",
+  );
+  const groups = [
+    { code: "C1" as const, name: "Il·luminació", kinds: new Set(["light", "switch"]) },
+    { code: "C2" as const, name: "Endolls", kinds: new Set(["socket"]) },
+  ];
+  for (const group of groups) {
+    const members = terminals.filter((element) =>
+      group.kinds.has(String(element.specification.terminalKind)),
+    );
+    if (!members.length) continue;
+    const { data: circuit, error: circuitError } = await supabase
+      .from("electrical_circuits")
+      .insert({
+        project_id: route.projectId,
+        created_by: userData.user.id,
+        name: group.name,
+        code: group.code,
+        status: "confirmed",
+      })
+      .select("id")
+      .single();
+    if (circuitError || !circuit) throw circuitError ?? new Error("Circuit proposal failed");
+    const assignments = members.map((element) => ({
+      project_id: route.projectId,
+      circuit_id: circuit.id,
+      terminal_element_id: element.id,
+      created_by: userData.user.id,
+    }));
+    const { error: assignmentsError } = await supabase
+      .from("electrical_circuit_terminals")
+      .insert(assignments);
+    if (assignmentsError) throw assignmentsError;
+    for (const member of members) {
+      const target = { x: member.transform.position.x, y: member.transform.position.y };
+      const origin = { x: 0, y: 0 };
+      const points = [origin, { x: target.x, y: 0 }, target];
+      const role = member.specification.terminalKind === "switch" ? "switch_feed" : "distribution";
+      const configuration = defaultRouteConfiguration({ circuitCode: group.code, role });
+      const { error: segmentError } = await supabase.from("electrical_route_segments").insert({
+        project_id: route.projectId,
+        circuit_id: circuit.id,
+        space_id: member.spaceId,
+        created_by: userData.user.id,
+        name: `${group.name} · ${member.name}`,
+        route_role: role,
+        path: points,
+        length_mm: measuredPolylineLengthMm(points),
+        conductor_configuration: configuration.conductors,
+        conduit_system: configuration.conduit.system,
+        conduit_diameter_mm: configuration.conduit.diameterMm,
+        status: "confirmed",
+      });
+      if (segmentError) throw segmentError;
+    }
+    if (group.code === "C1") {
+      const lights = members.filter((member) => member.specification.terminalKind === "light");
+      const switches = members.filter((member) => member.specification.terminalKind === "switch");
+      for (const control of switches) {
+        const load = lights
+          .filter((light) => light.spaceId === control.spaceId)
+          .sort(
+            (a, b) =>
+              Math.hypot(
+                a.transform.position.x - control.transform.position.x,
+                a.transform.position.y - control.transform.position.y,
+              ) -
+              Math.hypot(
+                b.transform.position.x - control.transform.position.x,
+                b.transform.position.y - control.transform.position.y,
+              ),
+          )[0];
+        if (!load) continue;
+        const { data: connection, error: connectionError } = await supabase
+          .from("electrical_connections")
+          .insert({
+            project_id: route.projectId,
+            circuit_id: circuit.id,
+            load_terminal_id: load.id,
+            topology: "simple",
+            status: "confirmed",
+            created_by: userData.user.id,
+          })
+          .select("id")
+          .single();
+        if (connectionError || !connection)
+          throw connectionError ?? new Error("Connection proposal failed");
+        const { error: controlError } = await supabase
+          .from("electrical_connection_controls")
+          .insert({
+            project_id: route.projectId,
+            connection_id: connection.id,
+            control_terminal_id: control.id,
+            sequence: 0,
+            created_by: userData.user.id,
+          });
+        if (controlError) throw controlError;
+        const target = { x: load.transform.position.x, y: load.transform.position.y };
+        const origin = { x: control.transform.position.x, y: control.transform.position.y };
+        const points = [origin, { x: target.x, y: origin.y }, target];
+        const configuration = defaultRouteConfiguration({
+          circuitCode: group.code,
+          role: "switch_return",
+        });
+        const { error: returnError } = await supabase.from("electrical_route_segments").insert({
+          project_id: route.projectId,
+          circuit_id: circuit.id,
+          space_id: control.spaceId,
+          created_by: userData.user.id,
+          name: `${group.name} · retorn ${control.name}`,
+          route_role: "switch_return",
+          path: points,
+          length_mm: measuredPolylineLengthMm(points),
+          conductor_configuration: configuration.conductors,
+          conduit_system: configuration.conduit.system,
+          conduit_diameter_mm: configuration.conduit.diameterMm,
+          status: "confirmed",
+        });
+        if (returnError) throw returnError;
+      }
+    }
+  }
+  await saveElectricalPlanBill(supabase, repository, route.projectId);
+  revalidatePath(route.value);
+}
+
+export async function toggleElectricalTerminal(formData: FormData) {
+  const route = path(formData);
+  const circuitId = uuidSchema.safeParse(formData.get("circuitId"));
+  const terminalId = uuidSchema.safeParse(formData.get("terminalId"));
+  if (!circuitId.success || !terminalId.success) return;
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) return;
+  const { data: existing } = await supabase
+    .from("electrical_circuit_terminals")
+    .select("circuit_id")
+    .eq("project_id", route.projectId)
+    .eq("terminal_element_id", terminalId.data)
+    .maybeSingle();
+  if (existing?.circuit_id === circuitId.data) {
+    await supabase
+      .from("electrical_circuit_terminals")
+      .delete()
+      .eq("project_id", route.projectId)
+      .eq("terminal_element_id", terminalId.data);
+  } else if (!existing) {
+    await supabase.from("electrical_circuit_terminals").insert({
+      project_id: route.projectId,
+      circuit_id: circuitId.data,
+      terminal_element_id: terminalId.data,
+      created_by: data.user.id,
+    });
+  }
+  revalidatePath(route.value);
+}
+
+export async function saveElectricalRoute(formData: FormData) {
+  const route = path(formData);
+  let points: unknown;
+  try {
+    points = JSON.parse(String(formData.get("points")));
+  } catch {
+    return { status: "error" as const };
+  }
+  const parsed = electricalRouteSchema.safeParse({
+    projectId: route.projectId,
+    circuitId: formData.get("circuitId"),
+    spaceId: formData.get("spaceId"),
+    role: formData.get("role"),
+    points,
+  });
+  if (!parsed.success) return { status: "error" as const };
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) return { status: "error" as const };
+  const { data: circuit } = await supabase
+    .from("electrical_circuits")
+    .select("id,name,code")
+    .eq("id", parsed.data.circuitId)
+    .eq("project_id", route.projectId)
+    .maybeSingle();
+  if (!circuit) return { status: "error" as const };
+  const circuitCode = electricalCircuitSchema.shape.code.safeParse(circuit.code);
+  if (!circuitCode.success) return { status: "error" as const };
+  const configuration = defaultRouteConfiguration({
+    circuitCode: circuitCode.data,
+    role: parsed.data.role,
+  });
+  const { error } = await supabase.from("electrical_route_segments").insert({
+    project_id: route.projectId,
+    circuit_id: circuit.id,
+    space_id: parsed.data.spaceId,
+    created_by: data.user.id,
+    name: `${circuit.name} · ${parsed.data.role}`,
+    route_role: parsed.data.role,
+    path: parsed.data.points,
+    length_mm: measuredPolylineLengthMm(parsed.data.points),
+    conductor_configuration: configuration.conductors,
+    conduit_system: configuration.conduit.system,
+    conduit_diameter_mm: configuration.conduit.diameterMm,
+    status: "confirmed",
+  });
+  if (error) return { status: "error" as const };
+  await saveElectricalPlanBill(
+    supabase,
+    createSupabaseBuildingModelRepository(supabase),
+    route.projectId,
+  );
+  revalidatePath(route.value);
+  return { status: "saved" as const };
 }
 
 export async function addTakeoffLineToShoppingList(formData: FormData) {

@@ -8,9 +8,7 @@ export type {
   CadPlanSaver,
   SavedCadPlan,
 } from "./ports/building-model-repository";
-export {
-  CreateCadPlanUseCase,
-} from "./use-cases/create-cad-plan";
+export { CreateCadPlanUseCase } from "./use-cases/create-cad-plan";
 export {
   cadComponentVariants,
   defaultCadComponentVariant,
@@ -26,3 +24,5 @@ export type {
 export { SaveCadPlanUseCase } from "./use-cases/save-cad-plan";
 export { CreateBuildingSpaceUseCase } from "./use-cases/create-building-space";
 export { CreateProjectSpaceUseCase } from "./use-cases/create-project-space";
+export { GenerateElectricalTakeoffUseCase } from "./use-cases/generate-electrical-takeoff";
+export { GenerateElectricalPlanBillUseCase } from "./use-cases/generate-electrical-plan-bill";

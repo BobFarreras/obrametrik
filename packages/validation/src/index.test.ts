@@ -11,12 +11,14 @@ describe("shared validation", () => {
       }).name,
     ).toBe("Bany"));
   it("requires at least one desired work for a surface scope", () =>
-    expect(surfaceWorkScopeSchema.safeParse({
-      surfaceId: "55555555-5555-4555-8555-555555555555",
-      existingFinish: "tile",
-      condition: "good",
-      waterExposure: "wet",
-      removeExisting: false,
-      desiredWorks: [],
-    }).success).toBe(false));
+    expect(
+      surfaceWorkScopeSchema.safeParse({
+        surfaceId: "55555555-5555-4555-8555-555555555555",
+        existingFinish: "tile",
+        condition: "good",
+        waterExposure: "wet",
+        removeExisting: false,
+        desiredWorks: [],
+      }).success,
+    ).toBe(false));
 });

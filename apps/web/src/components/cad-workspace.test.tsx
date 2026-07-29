@@ -13,6 +13,9 @@ vi.mock("../app/[locale]/dashboard/projects/[projectId]/actions", () => ({
     updatedAt: "2026-07-27T06:00:00Z",
   }),
 }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 
 const messages = {
   cadEditor: "Editor técnico",
@@ -85,6 +88,17 @@ const messages = {
   cancelDrawing: "Cancelar",
   invalidContour: "El contorno debe tener al menos tres puntos y no puede cruzarse.",
   millimetresUnit: "mm",
+  materialsAndShopping: "Materiales y compra",
+  componentVariant: "Tipo de mecanismo",
+  variantSingle: "Simple",
+  variantDouble: "Doble",
+  variantUsb: "Con USB",
+  variantDimmer: "Regulador",
+  variantTwoWay: "Conmutador",
+  variantCeiling: "Techo",
+  variantWall: "Pared",
+  variantRecessed: "Empotrado",
+  variantPendant: "Colgante",
   bathroom: "Baño",
   kitchen: "Cocina",
   bedroom: "Dormitorio",
@@ -94,6 +108,26 @@ const messages = {
 };
 
 describe("CadWorkspace", () => {
+  it("opens the materials drawer from the editor header", () => {
+    const drawer = document.createElement("details");
+    drawer.id = "materials-shopping-drawer";
+    document.body.append(drawer);
+
+    render(
+      <CadWorkspace
+        locale="es"
+        projectId="project-1"
+        spaces={[]}
+        elements={[]}
+        messages={messages}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Materiales y compra" })[0]!);
+    expect(drawer.open).toBe(true);
+    drawer.remove();
+  });
+
   it("undoes and redoes the complete CAD document", async () => {
     render(
       <CadWorkspace
@@ -350,6 +384,13 @@ describe("CadWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Baño/ }));
     fireEvent.click(screen.getAllByRole("button", { name: "Enchufe" }).at(-1)!);
     expect(screen.getByLabelText("Anchura")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Tipo de mecanismo" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "Tipo de mecanismo" }), {
+      target: { value: "double" },
+    });
+    expect(
+      (screen.getByRole("combobox", { name: "Tipo de mecanismo" }) as HTMLSelectElement).value,
+    ).toBe("double");
     expect((screen.getByLabelText("Posición en la pared") as HTMLInputElement).value).toBe("1800");
     fireEvent.change(screen.getByLabelText("Posición en la pared"), {
       target: { value: "2100" },

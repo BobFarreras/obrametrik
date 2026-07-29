@@ -8,8 +8,8 @@ import {
   localeSchema,
   uuidSchema,
 } from "@obrametrik/validation";
-import { SaveCadPlanUseCase } from "@obrametrik/application";
-import { createSupabaseBuildingModelRepository } from "@obrametrik/database";
+import { GenerateElectricalPlanBillUseCase, SaveCadPlanUseCase } from "@obrametrik/application";
+import { createSupabaseBuildingModelRepository, type Json } from "@obrametrik/database";
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
 
@@ -114,13 +114,104 @@ export async function saveCadSpace(formData: FormData) {
     const repository = createSupabaseBuildingModelRepository(supabase);
     const spaceIdValue = formData.get("spaceId");
     const spaceId =
-      typeof spaceIdValue === "string" && spaceIdValue
-        ? uuidSchema.parse(spaceIdValue)
-        : undefined;
+      typeof spaceIdValue === "string" && spaceIdValue ? uuidSchema.parse(spaceIdValue) : undefined;
     const saved = await new SaveCadPlanUseCase(repository).execute(parsed.data, spaceId);
+    await saveElectricalPlanBill(supabase, repository, route.projectId);
     revalidatePath(route.value);
     return { status: "saved" as const, ...saved };
   } catch {
     return { status: "error" as const };
   }
+}
+
+type ServerSupabaseClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+type BuildingModelRepository = ReturnType<typeof createSupabaseBuildingModelRepository>;
+
+async function saveElectricalPlanBill(
+  supabase: ServerSupabaseClient,
+  repository: BuildingModelRepository,
+  projectId: string,
+) {
+  const elements = await repository.findElementsByProject(projectId);
+  const result = new GenerateElectricalPlanBillUseCase().execute(elements);
+  const lines = result.lines.map((line) => ({
+    category_id: line.categoryId,
+    specification: line.specification,
+    source_entity_ids: line.sourceEntityIds,
+    quantity_base: line.quantityBase,
+    reserve_quantity: line.reserveQuantity,
+    waste_factor: line.wasteFactor,
+    quantity_with_waste: line.quantityWithWaste,
+    purchase_quantity: line.purchaseQuantity,
+    unit: line.unit,
+    formula: line.formula,
+    calculation_rule_id: line.calculationRuleId,
+    source_ids: line.sourceIds,
+    assumptions: line.assumptions,
+    confidence: line.confidence,
+    price_source: "none" as const,
+    price_low_cents: null,
+    price_high_cents: null,
+    price_checked_at: null,
+  }));
+  const { error } = await supabase.rpc("save_electrical_takeoff", {
+    p_project_id: projectId,
+    p_status: result.status,
+    p_rule_version: result.ruleVersion,
+    p_input_snapshot: {
+      source: "confirmed-cad-components",
+      sourceComponentCount: result.sourceComponentCount,
+      sourceEntityIds: [...new Set(result.lines.flatMap((line) => line.sourceEntityIds))],
+      missingInputs: result.missingInputs,
+    } as unknown as Json,
+    p_warnings: result.warnings as unknown as Json,
+    p_lines: lines as unknown as Json,
+  });
+  if (error) throw error;
+}
+
+export async function addTakeoffLineToShoppingList(formData: FormData) {
+  const route = path(formData);
+  const lineId = uuidSchema.safeParse(formData.get("lineId"));
+  if (!lineId.success) return;
+
+  const supabase = await createSupabaseServerClient();
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData.user) return;
+  const { data: line } = await supabase
+    .from("takeoff_lines")
+    .select("id,project_id,category_id,specification,purchase_quantity,unit")
+    .eq("id", lineId.data)
+    .eq("project_id", route.projectId)
+    .maybeSingle();
+  if (!line) return;
+
+  await supabase.from("shopping_list_items").upsert(
+    {
+      project_id: route.projectId,
+      takeoff_line_id: line.id,
+      created_by: userData.user.id,
+      category_id: line.category_id,
+      specification: line.specification,
+      quantity: line.purchase_quantity,
+      unit: line.unit,
+    },
+    { onConflict: "project_id,takeoff_line_id", ignoreDuplicates: true },
+  );
+  revalidatePath(route.value);
+}
+
+export async function toggleShoppingListItem(formData: FormData) {
+  const route = path(formData);
+  const itemId = uuidSchema.safeParse(formData.get("itemId"));
+  const checked = formData.get("checked") === "true";
+  if (!itemId.success) return;
+
+  const supabase = await createSupabaseServerClient();
+  await supabase
+    .from("shopping_list_items")
+    .update({ checked })
+    .eq("id", itemId.data)
+    .eq("project_id", route.projectId);
+  revalidatePath(route.value);
 }

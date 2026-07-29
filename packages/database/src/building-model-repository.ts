@@ -317,7 +317,7 @@ class SupabaseBuildingSpacesGateway implements BuildingSpacesGateway {
   async saveCadPlan(plan: CadPlanDraft, spaceId?: string): Promise<SavedCadPlan> {
     const { data, error } = await this.client.rpc("save_cad_plan", {
       p_plan: plan as unknown as Json,
-      p_space_id: spaceId ?? null,
+      ...(spaceId === undefined ? {} : { p_space_id: spaceId }),
     });
     if (error) throw error;
     const saved = data[0];

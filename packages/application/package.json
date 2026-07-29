@@ -14,6 +14,7 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
+    "@obrametrik/calculations": "workspace:*",
     "@obrametrik/domain": "workspace:*"
   },
   "devDependencies": {

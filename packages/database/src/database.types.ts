@@ -449,6 +449,63 @@ export type Database = {
           },
         ];
       };
+      shopping_list_items: {
+        Row: {
+          category_id: string;
+          checked: boolean;
+          created_at: string;
+          created_by: string;
+          id: string;
+          project_id: string;
+          quantity: number;
+          specification: Json;
+          takeoff_line_id: string | null;
+          unit: string;
+          updated_at: string;
+        };
+        Insert: {
+          category_id: string;
+          checked?: boolean;
+          created_at?: string;
+          created_by: string;
+          id?: string;
+          project_id: string;
+          quantity: number;
+          specification?: Json;
+          takeoff_line_id?: string | null;
+          unit: string;
+          updated_at?: string;
+        };
+        Update: {
+          category_id?: string;
+          checked?: boolean;
+          created_at?: string;
+          created_by?: string;
+          id?: string;
+          project_id?: string;
+          quantity?: number;
+          specification?: Json;
+          takeoff_line_id?: string | null;
+          unit?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "shopping_list_items_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "shopping_list_items_takeoff_line_id_fkey";
+            columns: ["takeoff_line_id"];
+            isOneToOne: false;
+            referencedRelation: "takeoff_lines";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       surface_work_scopes: {
         Row: {
           condition: Database["public"]["Enums"]["surface_condition"];
@@ -653,6 +710,140 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "building_elements";
             referencedColumns: ["id", "project_id"];
+          },
+        ];
+      };
+      takeoff_lines: {
+        Row: {
+          assumptions: Json;
+          calculation_rule_id: string;
+          category_id: string;
+          confidence: Database["public"]["Enums"]["takeoff_confidence"];
+          created_at: string;
+          formula: string;
+          id: string;
+          price_checked_at: string | null;
+          price_high_cents: number | null;
+          price_low_cents: number | null;
+          price_source: Database["public"]["Enums"]["price_source_kind"];
+          project_id: string;
+          purchase_quantity: number;
+          quantity_base: number;
+          quantity_with_waste: number;
+          reserve_quantity: number;
+          run_id: string;
+          source_entity_ids: string[];
+          source_ids: string[];
+          specification: Json;
+          unit: string;
+          waste_factor: number;
+        };
+        Insert: {
+          assumptions?: Json;
+          calculation_rule_id: string;
+          category_id: string;
+          confidence: Database["public"]["Enums"]["takeoff_confidence"];
+          created_at?: string;
+          formula: string;
+          id?: string;
+          price_checked_at?: string | null;
+          price_high_cents?: number | null;
+          price_low_cents?: number | null;
+          price_source?: Database["public"]["Enums"]["price_source_kind"];
+          project_id: string;
+          purchase_quantity: number;
+          quantity_base: number;
+          quantity_with_waste: number;
+          reserve_quantity?: number;
+          run_id: string;
+          source_entity_ids?: string[];
+          source_ids?: string[];
+          specification?: Json;
+          unit: string;
+          waste_factor: number;
+        };
+        Update: {
+          assumptions?: Json;
+          calculation_rule_id?: string;
+          category_id?: string;
+          confidence?: Database["public"]["Enums"]["takeoff_confidence"];
+          created_at?: string;
+          formula?: string;
+          id?: string;
+          price_checked_at?: string | null;
+          price_high_cents?: number | null;
+          price_low_cents?: number | null;
+          price_source?: Database["public"]["Enums"]["price_source_kind"];
+          project_id?: string;
+          purchase_quantity?: number;
+          quantity_base?: number;
+          quantity_with_waste?: number;
+          reserve_quantity?: number;
+          run_id?: string;
+          source_entity_ids?: string[];
+          source_ids?: string[];
+          specification?: Json;
+          unit?: string;
+          waste_factor?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "takeoff_lines_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "takeoff_lines_run_id_fkey";
+            columns: ["run_id"];
+            isOneToOne: false;
+            referencedRelation: "takeoff_runs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      takeoff_runs: {
+        Row: {
+          created_at: string;
+          created_by: string;
+          id: string;
+          input_snapshot: Json;
+          project_id: string;
+          rule_version: string;
+          status: Database["public"]["Enums"]["takeoff_run_status"];
+          trade: Database["public"]["Enums"]["work_trade"];
+          warnings: Json;
+        };
+        Insert: {
+          created_at?: string;
+          created_by: string;
+          id?: string;
+          input_snapshot: Json;
+          project_id: string;
+          rule_version: string;
+          status: Database["public"]["Enums"]["takeoff_run_status"];
+          trade: Database["public"]["Enums"]["work_trade"];
+          warnings?: Json;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string;
+          id?: string;
+          input_snapshot?: Json;
+          project_id?: string;
+          rule_version?: string;
+          status?: Database["public"]["Enums"]["takeoff_run_status"];
+          trade?: Database["public"]["Enums"]["work_trade"];
+          warnings?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "takeoff_runs_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
           },
         ];
       };
@@ -899,14 +1090,22 @@ export type Database = {
     };
     Functions: {
       save_cad_plan: {
-        Args: {
-          p_plan: Json;
-          p_space_id?: string | null;
-        };
+        Args: { p_plan: Json; p_space_id?: string };
         Returns: {
           space_id: string;
           updated_at: string;
         }[];
+      };
+      save_electrical_takeoff: {
+        Args: {
+          p_input_snapshot: Json;
+          p_lines: Json;
+          p_project_id: string;
+          p_rule_version: string;
+          p_status: Database["public"]["Enums"]["takeoff_run_status"];
+          p_warnings: Json;
+        };
+        Returns: string;
       };
     };
     Enums: {
@@ -943,6 +1142,7 @@ export type Database = {
       geometry_source: "manual" | "plan" | "scan" | "import";
       measurement_operation: "add" | "subtract";
       organization_role: "owner" | "admin" | "member";
+      price_source_kind: "none" | "orientation" | "catalog" | "offer";
       project_status: "draft" | "active" | "completed" | "archived";
       room_kind: "bathroom" | "kitchen" | "bedroom" | "living_room" | "hallway" | "other";
       space_footprint_kind: "rectangle" | "polygon";
@@ -959,6 +1159,8 @@ export type Database = {
         | "leave_as_is"
         | "other";
       system_element_role: "source" | "terminal" | "intermediate";
+      takeoff_confidence: "confirmed" | "estimated" | "pending";
+      takeoff_run_status: "insufficient_data" | "blocking" | "professional_review" | "confirmed";
       technical_system_kind:
         | "electrical"
         | "lighting_control"
@@ -1160,6 +1362,7 @@ export const Constants = {
       geometry_source: ["manual", "plan", "scan", "import"],
       measurement_operation: ["add", "subtract"],
       organization_role: ["owner", "admin", "member"],
+      price_source_kind: ["none", "orientation", "catalog", "offer"],
       project_status: ["draft", "active", "completed", "archived"],
       room_kind: ["bathroom", "kitchen", "bedroom", "living_room", "hallway", "other"],
       space_footprint_kind: ["rectangle", "polygon"],
@@ -1177,6 +1380,8 @@ export const Constants = {
         "other",
       ],
       system_element_role: ["source", "terminal", "intermediate"],
+      takeoff_confidence: ["confirmed", "estimated", "pending"],
+      takeoff_run_status: ["insufficient_data", "blocking", "professional_review", "confirmed"],
       technical_system_kind: [
         "electrical",
         "lighting_control",

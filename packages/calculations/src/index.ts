@@ -2,6 +2,8 @@
  * @file packages/calculations/src/index.ts
  * @description Calculates auditable purchase quantities without AI.
  */
+export * from "./electrical-panel";
+export * from "./electrical-plan-bill";
 export * from "./electrical-takeoff";
 
 export type MeasurementUnit = "m" | "m2" | "m3" | "kg" | "unit";

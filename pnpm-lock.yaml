@@ -224,6 +224,9 @@ importers:
 
   packages/application:
     dependencies:
+      '@obrametrik/calculations':
+        specifier: workspace:*
+        version: link:../calculations
       '@obrametrik/domain':
         specifier: workspace:*
         version: link:../domain

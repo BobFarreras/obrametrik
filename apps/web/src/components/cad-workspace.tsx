@@ -1,6 +1,7 @@
 "use client";
 
 import type { BuildingElement, BuildingSpace, Point2Mm, SpaceKind } from "@obrametrik/domain";
+import { useRouter } from "next/navigation";
 import React from "react";
 import {
   useEffect,
@@ -11,7 +12,12 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { saveCadSpace } from "../app/[locale]/dashboard/projects/[projectId]/actions";
-import { doorLeafCorners, findInteriorPoint, moveWalkCamera, wallOpeningCorners } from "./cad-camera";
+import {
+  doorLeafCorners,
+  findInteriorPoint,
+  moveWalkCamera,
+  wallOpeningCorners,
+} from "./cad-camera";
 import { isSimplePolygon, moveVertex, resizeWall } from "./cad-polygon-geometry";
 import {
   distributeHostedMarkers,
@@ -36,6 +42,7 @@ type Marker = {
   widthMm: number;
   heightMm: number;
   elevationMm: number;
+  variant: string;
 };
 type CadDocumentSnapshot = {
   vertices: readonly Point2Mm[];
@@ -124,6 +131,17 @@ type CadMessages = {
   wallLengthMm: string;
   orthogonalConstraint: string;
   millimetresUnit: string;
+  materialsAndShopping: string;
+  componentVariant: string;
+  variantSingle: string;
+  variantDouble: string;
+  variantUsb: string;
+  variantDimmer: string;
+  variantTwoWay: string;
+  variantCeiling: string;
+  variantWall: string;
+  variantRecessed: string;
+  variantPendant: string;
   bathroom: string;
   kitchen: string;
   bedroom: string;
@@ -168,6 +186,17 @@ const defaults: Record<ComponentKind, Pick<Marker, "widthMm" | "heightMm" | "ele
   cold_water: { widthMm: 80, heightMm: 80, elevationMm: 600 },
   hot_water: { widthMm: 80, heightMm: 80, elevationMm: 600 },
   drain: { widthMm: 110, heightMm: 110, elevationMm: 150 },
+};
+
+const defaultVariants: Record<ComponentKind, string> = {
+  door: "hinged",
+  window: "casement",
+  light: "ceiling",
+  switch: "single",
+  socket: "single",
+  cold_water: "wall_outlet",
+  hot_water: "wall_outlet",
+  drain: "floor",
 };
 
 function ToolIcon({ kind }: { kind: Tool }) {
@@ -397,13 +426,7 @@ function CadSymbol({
   );
 }
 
-type TechnicalView =
-  | "top"
-  | "front"
-  | "right"
-  | "elevation"
-  | "iso"
-  | "walk";
+type TechnicalView = "top" | "front" | "right" | "elevation" | "iso" | "walk";
 
 const technicalViewCamera: Record<TechnicalView, { yaw: number; pitch: number }> = {
   top: { yaw: 0, pitch: 0 },
@@ -416,12 +439,47 @@ const technicalViewCamera: Record<TechnicalView, { yaw: number; pitch: number }>
 
 function ViewIcon({ view }: { view: TechnicalView }) {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8 } as const;
-  if (view === "top") return <><rect {...common} x="4" y="5" width="16" height="14" /><path {...common} d="M8 9h8v6H8z" /></>;
-  if (view === "front") return <><path {...common} d="M4 20V5h16v15" /><path {...common} d="M9 20v-8h6v8" /></>;
-  if (view === "right") return <><path {...common} d="M5 20V6h14v14" /><path {...common} d="m12 3 4 3-4 3" /></>;
-  if (view === "elevation") return <><path {...common} d="M4 20V5h16v15M8 20v-8h7v8" /><path {...common} d="M2 5h20" /></>;
-  if (view === "walk") return <><circle {...common} cx="12" cy="6" r="2.5" /><path {...common} d="m12 9-3 5 3 2 3-5M9 14l-2 6M12 16l3 4" /></>;
-  return <><path {...common} d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z" /><path {...common} d="m4 7.5 8 4.5 8-4.5M12 12v9" /></>;
+  if (view === "top")
+    return (
+      <>
+        <rect {...common} x="4" y="5" width="16" height="14" />
+        <path {...common} d="M8 9h8v6H8z" />
+      </>
+    );
+  if (view === "front")
+    return (
+      <>
+        <path {...common} d="M4 20V5h16v15" />
+        <path {...common} d="M9 20v-8h6v8" />
+      </>
+    );
+  if (view === "right")
+    return (
+      <>
+        <path {...common} d="M5 20V6h14v14" />
+        <path {...common} d="m12 3 4 3-4 3" />
+      </>
+    );
+  if (view === "elevation")
+    return (
+      <>
+        <path {...common} d="M4 20V5h16v15M8 20v-8h7v8" />
+        <path {...common} d="M2 5h20" />
+      </>
+    );
+  if (view === "walk")
+    return (
+      <>
+        <circle {...common} cx="12" cy="6" r="2.5" />
+        <path {...common} d="m12 9-3 5 3 2 3-5M9 14l-2 6M12 16l3 4" />
+      </>
+    );
+  return (
+    <>
+      <path {...common} d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z" />
+      <path {...common} d="m4 7.5 8 4.5 8-4.5M12 12v9" />
+    </>
+  );
 }
 
 function Plan3D({
@@ -651,8 +709,17 @@ function Plan3D({
   const wallFaces = vertices
     .map((start, index) => {
       const end = vertices[(index + 1) % vertices.length]!;
-      const projected = [project(start), project(end), project(end, height), project(start, height)];
-      return { index, projected, depth: projected.reduce((sum, point) => sum + point.depth, 0) / 4 };
+      const projected = [
+        project(start),
+        project(end),
+        project(end, height),
+        project(start, height),
+      ];
+      return {
+        index,
+        projected,
+        depth: projected.reduce((sum, point) => sum + point.depth, 0) / 4,
+      };
     })
     .sort((a, b) => a.depth - b.depth);
   const openingFaces = markers
@@ -681,17 +748,18 @@ function Plan3D({
               vertices,
             ).map((corner) => project(corner, corner.z))
           : [];
-      return [{
-        marker,
-        projected,
-        doorLeaf,
-        depth: projected.reduce((sum, point) => sum + point.depth, 0) / 4,
-      }];
+      return [
+        {
+          marker,
+          projected,
+          doorLeaf,
+          depth: projected.reduce((sum, point) => sum + point.depth, 0) / 4,
+        },
+      ];
     })
     .sort((a, b) => a.depth - b.depth);
   const elevationStart = vertices[elevationWallIndex] ?? vertices[0]!;
-  const elevationEnd =
-    vertices[(elevationWallIndex + 1) % vertices.length] ?? vertices[1]!;
+  const elevationEnd = vertices[(elevationWallIndex + 1) % vertices.length] ?? vertices[1]!;
   const elevationWallLength = Math.max(1, edgeLength(elevationStart, elevationEnd));
   const elevationScaleX = 720 / elevationWallLength;
   const elevationScaleZ = 460 / Math.max(height, 1);
@@ -734,25 +802,45 @@ function Plan3D({
             <button
               type="button"
               aria-label={viewLabels.nextWall}
-              onClick={() =>
-                setElevationWallIndex((current) => (current + 1) % vertices.length)
-              }
+              onClick={() => setElevationWallIndex((current) => (current + 1) % vertices.length)}
             >
               W →
             </button>
           </>
         ) : null}
-        <button type="button" onClick={() => selectView(view)}>{viewLabels.fit}</button>
+        <button type="button" onClick={() => selectView(view)}>
+          {viewLabels.fit}
+        </button>
       </div>
       <span className="cad-camera-help">
         {view === "walk" ? viewLabels.walkHelp : viewLabels.orbitHelp}
       </span>
       {view === "walk" ? (
         <div className="cad-walk-controls">
-          <button type="button" aria-label={viewLabels.moveForward} onClick={() => movePerson(200)}>↑</button>
-          <button type="button" aria-label={viewLabels.turnLeft} onClick={() => setYaw((current) => current - 8)}>←</button>
-          <button type="button" aria-label={viewLabels.moveBackward} onClick={() => movePerson(-200)}>↓</button>
-          <button type="button" aria-label={viewLabels.turnRight} onClick={() => setYaw((current) => current + 8)}>→</button>
+          <button type="button" aria-label={viewLabels.moveForward} onClick={() => movePerson(200)}>
+            ↑
+          </button>
+          <button
+            type="button"
+            aria-label={viewLabels.turnLeft}
+            onClick={() => setYaw((current) => current - 8)}
+          >
+            ←
+          </button>
+          <button
+            type="button"
+            aria-label={viewLabels.moveBackward}
+            onClick={() => movePerson(-200)}
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            aria-label={viewLabels.turnRight}
+            onClick={() => setYaw((current) => current + 8)}
+          >
+            →
+          </button>
         </div>
       ) : null}
       <svg
@@ -778,17 +866,34 @@ function Plan3D({
         }}
         onWheel={(event) => {
           event.preventDefault();
-          setZoom((current) => Math.max(0.25, Math.min(5, current * (event.deltaY > 0 ? 0.9 : 1.1))));
+          setZoom((current) =>
+            Math.max(0.25, Math.min(5, current * (event.deltaY > 0 ? 0.9 : 1.1))),
+          );
         }}
       >
         {view === "elevation" ? (
           <>
-            <rect x="140" y="100" width="720" height="460" fill="#f8faf8" stroke="#2a4b4f" strokeWidth="5" />
+            <rect
+              x="140"
+              y="100"
+              width="720"
+              height="460"
+              fill="#f8faf8"
+              stroke="#2a4b4f"
+              strokeWidth="5"
+            />
             <line x1="110" y1="560" x2="890" y2="560" stroke="#1c3133" strokeWidth="6" />
             <text x="500" y="625" textAnchor="middle" fontSize="24" fontWeight="800">
               W{elevationWallIndex + 1} · {elevationWallLength} mm
             </text>
-            <text x="92" y="340" textAnchor="middle" fontSize="22" fontWeight="800" transform="rotate(-90 92 340)">
+            <text
+              x="92"
+              y="340"
+              textAnchor="middle"
+              fontSize="22"
+              fontWeight="800"
+              transform="rotate(-90 92 340)"
+            >
               {height} mm
             </text>
             {elevationMarkers.map((marker) => {
@@ -851,11 +956,20 @@ function Plan3D({
                     event.currentTarget.setPointerCapture(event.pointerId);
                   }}
                 >
-                  <circle r={selected ? 24 : 19} fill={selected ? "#f4ac3d" : "#fff"} stroke="#1c3133" strokeWidth="4" />
+                  <circle
+                    r={selected ? 24 : 19}
+                    fill={selected ? "#f4ac3d" : "#fff"}
+                    stroke="#1c3133"
+                    strokeWidth="4"
+                  />
                   <g transform="translate(-12 -12)" color="#1c3133">
-                    <svg width="24" height="24" viewBox="0 0 24 24"><ToolIcon kind={marker.kind} /></svg>
+                    <svg width="24" height="24" viewBox="0 0 24 24">
+                      <ToolIcon kind={marker.kind} />
+                    </svg>
                   </g>
-                  <text x="28" y="-22" fontSize="20" fontWeight="800">{marker.elevationMm} mm</text>
+                  <text x="28" y="-22" fontSize="20" fontWeight="800">
+                    {marker.elevationMm} mm
+                  </text>
                 </g>
               );
             })}
@@ -925,39 +1039,47 @@ function Plan3D({
               ))}
           </>
         )}
-        {view !== "elevation" && markers.filter((marker) => marker.kind !== "door" && marker.kind !== "window").map((marker) => {
-          const point = project(marker.point, marker.elevationMm);
-          if (!point.visible) return null;
-          const selected = selectedMarkerIds.includes(marker.id);
-          return (
-            <g
-              key={marker.id}
-              transform={`translate(${point.x} ${point.y})`}
-              role="button"
-              tabIndex={0}
-              aria-label={`${markerLabels[marker.kind]} · ${marker.elevationMm} mm`}
-              onPointerDown={(event) => {
-                event.stopPropagation();
-                onSelectMarker(marker.id);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") onSelectMarker(marker.id);
-              }}
-            >
-              <circle r={selected ? 20 : 16} fill={selected ? "#f4ac3d" : "#fff"} stroke="#1c3133" strokeWidth="3" />
-              <g transform="translate(-11 -11)" color="#1c3133">
-                <svg width="22" height="22" viewBox="0 0 24 24">
-                  <ToolIcon kind={marker.kind} />
-                </svg>
-              </g>
-              {(view === "front" || view === "right") && (
-                <text x="24" y="-18" fontSize="18" fontWeight="800" fill="#1c3133">
-                  {marker.elevationMm} mm
-                </text>
-              )}
-            </g>
-          );
-        })}
+        {view !== "elevation" &&
+          markers
+            .filter((marker) => marker.kind !== "door" && marker.kind !== "window")
+            .map((marker) => {
+              const point = project(marker.point, marker.elevationMm);
+              if (!point.visible) return null;
+              const selected = selectedMarkerIds.includes(marker.id);
+              return (
+                <g
+                  key={marker.id}
+                  transform={`translate(${point.x} ${point.y})`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${markerLabels[marker.kind]} · ${marker.elevationMm} mm`}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    onSelectMarker(marker.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") onSelectMarker(marker.id);
+                  }}
+                >
+                  <circle
+                    r={selected ? 20 : 16}
+                    fill={selected ? "#f4ac3d" : "#fff"}
+                    stroke="#1c3133"
+                    strokeWidth="3"
+                  />
+                  <g transform="translate(-11 -11)" color="#1c3133">
+                    <svg width="22" height="22" viewBox="0 0 24 24">
+                      <ToolIcon kind={marker.kind} />
+                    </svg>
+                  </g>
+                  {(view === "front" || view === "right") && (
+                    <text x="24" y="-18" fontSize="18" fontWeight="800" fill="#1c3133">
+                      {marker.elevationMm} mm
+                    </text>
+                  )}
+                </g>
+              );
+            })}
       </svg>
     </div>
   );
@@ -980,6 +1102,7 @@ export function CadWorkspace({
   elements: readonly BuildingElement[];
   messages: CadMessages;
 }) {
+  const router = useRouter();
   const [vertices, setVertices] = useState<readonly Point2Mm[]>(templates.rectangle);
   const [viewBox, setViewBox] = useState<ViewBox>(() => fitViewBox(templates.rectangle));
   const [height, setHeight] = useState(2500);
@@ -1013,6 +1136,14 @@ export function CadWorkspace({
   const panStart = useRef<{ x: number; y: number; viewBox: ViewBox } | null>(null);
   const dragCheckpointRef = useRef(false);
   const area = useMemo(() => polygonArea(vertices), [vertices]);
+
+  function openMaterialsDrawer() {
+    const drawer = document.getElementById("materials-shopping-drawer");
+    if (drawer instanceof HTMLDetailsElement) {
+      drawer.open = true;
+      drawer.querySelector<HTMLElement>(".takeoff-drawer-content")?.focus();
+    }
+  }
   const selectedMarker = selectedMarkerIds.at(-1) ?? null;
   const selected = markers.find((marker) => marker.id === selectedMarker);
   const toolLabels: Record<Tool, string> = {
@@ -1040,6 +1171,7 @@ export function CadWorkspace({
       widthMm: marker.widthMm,
       heightMm: marker.heightMm,
       elevationMm: marker.elevationMm,
+      variant: marker.variant,
     })),
   });
 
@@ -1161,6 +1293,7 @@ export function CadWorkspace({
       setActiveSpaceId(result.spaceId);
       lastSavedRef.current = serialized;
       setSaveState("clean");
+      router.refresh();
     } else {
       setSaveState("error");
     }
@@ -1202,37 +1335,39 @@ export function CadWorkspace({
     setKind(space.kind);
     setSelectedMarkerIds([]);
     const loadedMarkers = elements
-        .filter((element) => element.spaceId === space.id && element.kind !== "wall")
-        .flatMap((element): Marker[] => {
-          const terminalKind = element.specification.terminalKind;
-          const markerKind =
-            element.kind === "door" || element.kind === "window"
-              ? element.kind
-              : terminalKind === "light" ||
-                  terminalKind === "switch" ||
-                  terminalKind === "socket" ||
-                  terminalKind === "cold_water" ||
-                  terminalKind === "hot_water" ||
-                  terminalKind === "drain"
-                ? terminalKind
-                : null;
-          if (!markerKind) return [];
-          const host = elements.find((candidate) => candidate.id === element.hostElementId);
-          return [
-            {
-              id: element.id,
-              kind: markerKind,
-              point: { x: element.transform.position.x, y: element.transform.position.y },
-              wallIndex:
-                typeof host?.specification.wallIndex === "number"
-                  ? host.specification.wallIndex
-                  : 0,
-              widthMm: element.dimensionsMm.width,
-              heightMm: element.dimensionsMm.height,
-              elevationMm: element.transform.position.z,
-            },
-          ];
-        });
+      .filter((element) => element.spaceId === space.id && element.kind !== "wall")
+      .flatMap((element): Marker[] => {
+        const terminalKind = element.specification.terminalKind;
+        const markerKind =
+          element.kind === "door" || element.kind === "window"
+            ? element.kind
+            : terminalKind === "light" ||
+                terminalKind === "switch" ||
+                terminalKind === "socket" ||
+                terminalKind === "cold_water" ||
+                terminalKind === "hot_water" ||
+                terminalKind === "drain"
+              ? terminalKind
+              : null;
+        if (!markerKind) return [];
+        const host = elements.find((candidate) => candidate.id === element.hostElementId);
+        return [
+          {
+            id: element.id,
+            kind: markerKind,
+            point: { x: element.transform.position.x, y: element.transform.position.y },
+            wallIndex:
+              typeof host?.specification.wallIndex === "number" ? host.specification.wallIndex : 0,
+            widthMm: element.dimensionsMm.width,
+            heightMm: element.dimensionsMm.height,
+            elevationMm: element.transform.position.z,
+            variant:
+              typeof element.specification.variant === "string"
+                ? element.specification.variant
+                : defaultVariants[markerKind],
+          },
+        ];
+      });
     setMarkers(loadedMarkers);
     setActiveSpaceId(space.id);
     lastSavedRef.current = JSON.stringify({
@@ -1248,6 +1383,7 @@ export function CadWorkspace({
         widthMm: marker.widthMm,
         heightMm: marker.heightMm,
         elevationMm: marker.elevationMm,
+        variant: marker.variant,
       })),
     });
     setSaveState("clean");
@@ -1333,6 +1469,7 @@ export function CadWorkspace({
         kind: tool,
         point: { x: Math.round(nearest.point.x), y: Math.round(nearest.point.y) },
         wallIndex: nearest.wallIndex,
+        variant: defaultVariants[tool],
         ...defaults[tool],
       };
       setMarkers((current) => [...current, marker]);
@@ -1427,11 +1564,7 @@ export function CadWorkspace({
 
   function finishPointerInteraction() {
     if (selectionBox) {
-      const boxedIds = hostedMarkerIdsInBox(
-        markers,
-        selectionBox.start,
-        selectionBox.current,
-      );
+      const boxedIds = hostedMarkerIdsInBox(markers, selectionBox.start, selectionBox.current);
       setSelectedMarkerIds((current) => [...new Set([...current, ...boxedIds])]);
       setSelectionBox(null);
     }
@@ -1476,7 +1609,12 @@ export function CadWorkspace({
             disabled={!historyAvailability.canUndo}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M9 7 4 12l5 5M5 12h8a6 6 0 0 1 6 6" fill="none" stroke="currentColor" strokeWidth="2" />
+              <path
+                d="M9 7 4 12l5 5M5 12h8a6 6 0 0 1 6 6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
             </svg>
           </button>
           <button
@@ -1487,10 +1625,34 @@ export function CadWorkspace({
             disabled={!historyAvailability.canRedo}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="m15 7 5 5-5 5m4-5h-8a6 6 0 0 0-6 6" fill="none" stroke="currentColor" strokeWidth="2" />
+              <path
+                d="m15 7 5 5-5 5m4-5h-8a6 6 0 0 0-6 6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
             </svg>
           </button>
         </div>
+        <button
+          className="cad-materials-button"
+          type="button"
+          onClick={openMaterialsDrawer}
+          aria-label={messages.materialsAndShopping}
+          title={messages.materialsAndShopping}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 6h2l2 9h9l2-6H8M10 20h.01M17 20h.01"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+            />
+          </svg>
+          <span>{messages.materialsAndShopping}</span>
+        </button>
         <div className="cad-save-group">
           <span role="status">
             {saveState === "dirty"
@@ -1513,6 +1675,24 @@ export function CadWorkspace({
           </button>
         </div>
       </header>
+      <button
+        className="cad-materials-mobile-nav"
+        type="button"
+        onClick={openMaterialsDrawer}
+        aria-label={messages.materialsAndShopping}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M4 6h2l2 9h9l2-6H8M10 20h.01M17 20h.01"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+          />
+        </svg>
+        <span>{messages.materialsAndShopping}</span>
+      </button>
 
       <div className="cad-workspace">
         <aside className="cad-tools" aria-label={messages.cadEditor}>
@@ -1851,6 +2031,44 @@ export function CadWorkspace({
                   {messages.pasteComponents}
                 </button>
               </div>
+              {selected.kind === "light" ||
+              selected.kind === "switch" ||
+              selected.kind === "socket" ? (
+                <label>
+                  {messages.componentVariant}
+                  <select
+                    aria-label={messages.componentVariant}
+                    value={selected.variant}
+                    onFocus={checkpoint}
+                    onChange={(event) => updateSelected({ variant: event.target.value })}
+                  >
+                    {(selected.kind === "light"
+                      ? [
+                          ["ceiling", messages.variantCeiling],
+                          ["wall", messages.variantWall],
+                          ["recessed", messages.variantRecessed],
+                          ["pendant", messages.variantPendant],
+                        ]
+                      : selected.kind === "switch"
+                        ? [
+                            ["single", messages.variantSingle],
+                            ["double", messages.variantDouble],
+                            ["dimmer", messages.variantDimmer],
+                            ["two_way", messages.variantTwoWay],
+                          ]
+                        : [
+                            ["single", messages.variantSingle],
+                            ["double", messages.variantDouble],
+                            ["usb", messages.variantUsb],
+                          ]
+                    ).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label>
                 {messages.componentWidthMm}
                 <input
